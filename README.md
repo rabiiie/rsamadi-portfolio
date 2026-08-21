@@ -8,6 +8,9 @@ This repo has sanitized write-ups of what I've shipped. No proprietary code, no 
 
 - [AppFibra - SaaS GIS, AI Agents & Enterprise Security](case-studies/appfibra-saas-gis-ai.md)
 - [WilayaCenter Pharma - Pharmacy SaaS](case-studies/wilayacenter-pharma-saas.md)
+- [Measured Performance Diagnosis - making a data grid fast without guessing](case-studies/measured-performance-diagnosis.md)
+- [Capacity and Database Performance - sizing a machine with a measurement instead of a guess](case-studies/capacity-and-database-performance.md)
+- [CI With Security Built In - designing what blocks and what doesn't](case-studies/ci-pipeline-what-blocks.md)
 - [Technical architecture diagrams](diagrams/appfibra-platform.md)
 - [Talking points, the 60-second version](presentation/rabie-samadi-technical-portfolio.md)
 
@@ -19,6 +22,8 @@ This repo has sanitized write-ups of what I've shipped. No proprietary code, no 
 - Applied AI in real workflows: OCR for supplier documents, narrative payroll summaries, semantic product search over embeddings.
 - Security: Spring Security, Keycloak/OAuth2, RBAC, CSRF/CORS, RLS, resource scopes, M2M auth between services.
 - Multi-client GIS: configurable layers, per-client resolvers, precomputed KPIs, filtering pushed down to the backend.
+- CI with security built in, not bolted on: GitHub Actions running secret scanning over full history, SAST, dependency auditing and SBOM, with the Spring context validated against a real PostGIS container — and query plans asserted against that same container, so a deleted index fails a pull request instead of a production afternoon.
+- Performance work driven by measurement rather than intuition — profiling, microbenchmarks, load testing with k6, query plans read with `EXPLAIN (ANALYZE, BUFFERS)`, and reversing my own architecture decisions when the numbers disagree with them.
 - End-to-end delivery — requirements through architecture, implementation, deployment, and keeping it running afterward.
 
 ## Production Signals
@@ -27,12 +32,13 @@ This repo has sanitized write-ups of what I've shipped. No proprietary code, no 
 - +200 municipalities, +200,000 homes covered by the FTTH platform's GIS/network data.
 - 3 active industrial clients on the main platform.
 - 50-100 concurrent users in day-to-day operational workflows.
+- Load-tested to a measured knee between 150 and 300 concurrent virtual users (187 req/s) — the measurement that sized the production machine.
 - 3 internal services talking to each other through M2M authentication.
 - Resource-level authorization down to project/city scope.
 
 ## Tech Stack
 
-Java 17 · Spring Boot · Spring Security · Keycloak/OAuth2 · React · PostgreSQL · PostGIS · PostgresML · FastAPI · Python · Model Context Protocol (MCP) · Google Cloud Document AI · Google Gemini · MapLibre/Leaflet · Capacitor · SQLite · Power BI
+Java 17 · Spring Boot · Spring Security · Keycloak/OAuth2 · React · PostgreSQL · PostGIS · PostgresML · FastAPI · Python · Model Context Protocol (MCP) · Google Cloud Document AI · Google Gemini · MapLibre/Leaflet · Capacitor · SQLite · Power BI · GitHub Actions · Semgrep · Testcontainers · k6
 
 ## Architecture Snapshot
 

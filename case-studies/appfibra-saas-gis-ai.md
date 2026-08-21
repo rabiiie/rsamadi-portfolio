@@ -104,11 +104,16 @@ Integration with an external workorders API includes:
 - Historical reconstruction.
 - Restore-preview and corrective export workflows.
 
+User-facing undo sits on top of the same audit trail: a single edit or a whole save can be reverted, under optimistic locking, with a preview that separates the rows nobody has touched from the ones someone overwrote in the meantime and the ones outside the user's scope. Force-overwriting the second group takes an explicit confirmation, because it discards somebody else's work.
+
+Writing it surfaced a gap worth mentioning: the audit wasn't recording the *first* edit of each row — the one that creates its manual layer. Undo would have been impossible for exactly the rows most likely to need it, and nothing about the feature would have looked broken until someone tried.
+
 ## Selected Impact
 
 - The old import-audit system flagged tens of thousands of false changes a day, just from a date-format mismatch between two data sources. Replaced it with a field-level audit, verified in production with zero false positives — the team can actually trust the change history now when a client disputes something.
 - Redesigned the permission model so adding a new report is a one-line config change, not a security deployment. Also made sure hundreds of existing users wouldn't quietly inherit access to it by accident.
 - Checked the "homes passed" counting logic against the client's official technical standard and fixed a discrepancy that was slightly overstating the numbers we reported to the business.
+- Answered "how many concurrent users does this take" with a load test instead of an estimate — knee measured between 150 and 300 concurrent users at 187 req/s — and used it to size the production machine. [Write-up](capacity-and-database-performance.md).
 - Enabled GIS-first workflows across office and field teams.
 - Hardened internal service-to-service communication across Java and Python services.
 
