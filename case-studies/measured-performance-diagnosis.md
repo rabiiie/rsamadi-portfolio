@@ -2,6 +2,12 @@
 
 > Sanitized write-up — no proprietary code, credentials, or client data. This one is about method: how the problems were found, not just what was changed.
 
+## The short version
+
+Four confident hypotheses, all drawn from reading real code, all wrong. What the measurements found instead: 952 concurrent CSS transitions caused by one declaration on the wrong element, a virtualizer mounting 100 rows to show 18, and a `React.memo` comparator that made row selection work by accident.
+
+Main-thread occupancy went from 92.7 % to 85.3 %, style recalculation from 45.7 % to 16.1 %. Then a microbenchmark deleted a Web Worker that an architecture decision of my own had required.
+
 ## Context
 
 The follow-up module of the FTTH platform is a set of editable data grids: hundreds of thousands of records, 40+ columns, inline editing, grouping, filtering, sorting, sticky columns, optimistic locking. Today 50-100 concurrent users; the target is 500.

@@ -2,6 +2,12 @@
 
 Companion to [Measured Performance Diagnosis](measured-performance-diagnosis.md). That one is the browser half: why a grid felt slow with the server out of the picture. This is the other half — what happens when fifty people use it at once, and what the database was actually doing under them.
 
+## The short version
+
+*How many people can use this at once, and what machine does it need?* Nobody knew. The load-testing tool quietly discarded the scenarios it was handed and measured something else first — a wrong number with a plausible face on it.
+
+Once it measured the right thing: the knee sits between 150 and 300 concurrent users, and a controlled experiment separated the connection pool (real, small) from the CPU (dominant), which told the business to buy cores rather than pay for tuning. Then the query work — a save path from 730 ms to 113 ms, a histogram that read 477,000 rows per request — and one measurement that said *don't build* the obvious next thing.
+
 ## Context
 
 A multi-client FTTH platform, one reference table of a few hundred thousand rows and forty columns, and a question from the business that had no measured answer: *how many people can use this at the same time, and what machine does it need?*

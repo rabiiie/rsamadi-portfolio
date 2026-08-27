@@ -2,6 +2,12 @@
 
 > Sanitized write-up — no proprietary code, credentials, or client data. This one is about a design question that gets skipped: not *which* checks to run, but which ones are allowed to stop the work.
 
+## The short version
+
+A check that blocks from day one on a repository with history teaches the team to ignore CI. So new controls enter informative — with a stated expiry condition, never indefinitely — and every accepted vulnerability carries a date past which the build fails again.
+
+The distinction that carries the most weight: a scanner *finding* issues doesn't fail its job, but the scanner *failing to run* does. Collapse those two and the pipeline reports that it runs SAST while running nothing. Underneath it all, the foundation that had to come first — seventy loose `.sql` files, applied by hand, that were blocking every check downstream.
+
 ## Context
 
 One repository, polyglot: a Java 17 / Spring Boot backend, a React + Capacitor frontend, two Python services, and the full PostgreSQL/PostGIS schema. One developer. Real users in production.
