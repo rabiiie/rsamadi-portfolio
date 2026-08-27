@@ -100,13 +100,12 @@ And one process mistake worth recording: I edited the workload script *between* 
 
 A `qa/` directory in the repository holding runnable scripts, a microbenchmark harness, and dated measurement write-ups — one per session, with the numbers that justified each change. The *method* lives in the ADR that decided it; the folder holds only what runs and what it produced. Duplicating the explanation in two places guarantees one copy rots.
 
-Each documented fix carries the measurement that justified it, so a future change that regresses it is detectable rather than arguable.
-
 ## Still open, deliberately
 
-- `Commit`, `Hit test` and `Layerize` are now 55 % of the hover profile — composition and paint, not style calculation. A different problem with diminishing returns; not worth attacking without a real complaint.
+- `Commit`, `Hit test` and `Layerize` are now 55 % of the hover profile — composition and paint, not style calculation. That is the honest remaining ceiling in the browser: a different problem, with diminishing returns, and not worth attacking without a real complaint.
 - A 232 ms INP when opening the cell editor turned out **not to be React at all**: it was a network round-trip fetching permissions before opening the cell. Different layer, different fix.
-- `Commit`, `Hit test` and `Layerize` above are the honest remaining ceiling in the browser. The server side of the same grid is a separate write-up: [Capacity and Database Performance](capacity-and-database-performance.md).
+
+The other half of this grid's performance — what happens when fifty people use it at once, and what the database is doing under them — is a separate write-up: [Capacity and Database Performance](capacity-and-database-performance.md).
 
 ## Where it went after that
 

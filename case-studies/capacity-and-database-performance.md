@@ -69,13 +69,11 @@ Two decisions inside that are worth stating, because both had a tempting wrong a
 
 ## Making it stay fixed
 
-An index deleted by accident is invisible until production is slow. So the query plans became tests.
-
-They run against a real PostGIS container, seed enough rows for the planner to take indexes seriously, and assert via `EXPLAIN` that each critical query still uses the one it was designed around. Delete an index and the pull request goes red.
-
-One subtlety worth knowing: `SET enable_seqscan = off` **prices** sequential scans absurdly high, it does not forbid them. On a narrow test fixture a missing index still produces a sequential scan rather than an error — so the assertion has to be on the plan, and the fixture has to be big enough to be honest.
+An index deleted by accident is invisible until production is slow. So the query plans became tests: they run against a real PostGIS container and assert via `EXPLAIN` that each critical query still uses the index it was designed around. Delete one and the pull request goes red.
 
 The mechanism is per-table, not specific to the first one. That was deliberate: the second table needed it before it was written.
+
+How those tests are built — and the trap in the obvious way to write them — is in the pipeline write-up: [CI With Security Built In](ci-pipeline-what-blocks.md#once-there-was-a-real-database-in-ci-it-could-guard-more-than-boot).
 
 ## The measurement that said don't build it
 
