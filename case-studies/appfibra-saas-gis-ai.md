@@ -112,6 +112,8 @@ Compressed deliberately. These are capabilities; the decisions are above.
 
 **Operations** — optimistic locking for concurrent grid editing, scheduled jobs with per-run tracking, and operational dashboards over the import pipeline.
 
+**Photo documentation** — OCR, geocoding and watermark removal over field photographs, where the deliverable handed to the client *is* the photo. Its own write-up: [A Pipeline Where Nothing Fails Loudly](photodoc-silent-failures.md).
+
 The browser and database performance work on this platform has its own write-ups: [Measured Performance Diagnosis](measured-performance-diagnosis.md) and [Capacity and Database Performance](capacity-and-database-performance.md). The delivery pipeline is in [CI With Security Built In](ci-pipeline-what-blocks.md).
 
 ## Architecture

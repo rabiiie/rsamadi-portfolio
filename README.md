@@ -9,6 +9,7 @@ This repo has sanitized write-ups of what I've shipped. No proprietary code, no 
 - [AppFibra - SaaS GIS, AI Agents & Enterprise Security](case-studies/appfibra-saas-gis-ai.md)
 - [WilayaCenter Pharma - Pharmacy SaaS](case-studies/wilayacenter-pharma-saas.md)
 - [Domain AI Agents on MCP - giving a model tools instead of a database](case-studies/mcp-agents-semantic-tools.md)
+- [Photo Documentation - a pipeline where nothing fails loudly](case-studies/photodoc-silent-failures.md)
 - [Measured Performance Diagnosis - making a data grid fast without guessing](case-studies/measured-performance-diagnosis.md)
 - [Capacity and Database Performance - sizing a machine with a measurement instead of a guess](case-studies/capacity-and-database-performance.md)
 - [CI With Security Built In - designing what blocks and what doesn't](case-studies/ci-pipeline-what-blocks.md)
