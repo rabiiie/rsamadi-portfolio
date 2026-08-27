@@ -10,9 +10,9 @@ This repo has sanitized write-ups of what I've shipped. No proprietary code, no 
 - [WilayaCenter Pharma - Pharmacy SaaS](case-studies/wilayacenter-pharma-saas.md)
 - [Domain AI Agents on MCP - semantic tools over text-to-SQL](case-studies/mcp-agents-semantic-tools.md)
 - [Photo Documentation - OCR, geocoding and watermark removal](case-studies/photodoc-silent-failures.md)
-- [Measured Performance Diagnosis - making a data grid fast without guessing](case-studies/measured-performance-diagnosis.md)
-- [Capacity and Database Performance - sizing a machine with a measurement instead of a guess](case-studies/capacity-and-database-performance.md)
-- [CI With Security Built In - designing what blocks and what doesn't](case-studies/ci-pipeline-what-blocks.md)
+- [Data Grid Performance - browser-side diagnosis](case-studies/measured-performance-diagnosis.md)
+- [Capacity and Database Performance - load testing and query work](case-studies/capacity-and-database-performance.md)
+- [CI Pipeline - which checks are allowed to block](case-studies/ci-pipeline-what-blocks.md)
 - [Technical architecture diagrams](diagrams/appfibra-platform.md)
 - [Talking points, the 60-second version](presentation/rabie-samadi-technical-portfolio.md)
 

@@ -11,7 +11,7 @@ Web/mobile SaaS platform for FTTH network deployment: GIS, field operations, con
 - Role: sole developer — architecture, backend, frontend, data model, GIS, security, deployment, production support.
 - Data flow: most records arrive from daily ETL jobs over files produced by third-party systems. Outputs feed client reports and invoicing.
 
-Five defects and design decisions are documented below. Performance work has separate write-ups: [Measured Performance Diagnosis](measured-performance-diagnosis.md) (browser) and [Capacity and Database Performance](capacity-and-database-performance.md) (server). Delivery pipeline: [CI With Security Built In](ci-pipeline-what-blocks.md).
+Five defects and design decisions are documented below. Performance work has separate write-ups: [Data Grid Performance](measured-performance-diagnosis.md) (browser) and [Capacity and Database Performance](capacity-and-database-performance.md) (server). Delivery pipeline: [CI Pipeline](ci-pipeline-what-blocks.md).
 
 ---
 
