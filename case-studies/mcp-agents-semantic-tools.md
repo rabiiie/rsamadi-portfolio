@@ -1,109 +1,111 @@
-# Domain AI Agents on MCP — Giving a Model Tools Instead of a Database
+# Domain AI Agents on MCP — Semantic Tools Over Text-to-SQL
 
-> Sanitized write-up — no proprietary code, credentials, or client data. Identifiers are generalized. This one is about the interface between a language model and a business: what you expose, what you refuse to expose, and what a number has to carry with it before an agent is allowed to say it out loud.
+> Sanitized: no proprietary code, credentials or client data. Identifiers generalized.
 
-## The short version
+## Scope
 
-Two domain agents over an FTTH platform, answering operational questions in natural language — how many homes are passed in this municipality, which contracts were cancelled after the civil works were already done, what's ready for activation.
+Two domain agents over an FTTH platform, answering operational questions in natural language: homes passed in a given municipality, contracts cancelled after civil works were completed, records ready for activation.
 
-One is built on a **restricted SQL surface**. The other on **19 purpose-built tools over the Model Context Protocol**, wrapping the same business logic the official reports use. They're different on purpose, and the reason is the interesting part.
+- Agent A: restricted SQL surface (pre-existing, retrofitted with an admission guard).
+- Agent B: 19 purpose-built tools over the Model Context Protocol, wrapping the same views the official reports read.
+- Orchestration: Python/FastAPI, streaming SSE. Tool server: Spring Boot, Spring AI MCP server over SSE.
+- Authentication: Token Relay with Keycloak JWT.
 
-## Why not text-to-SQL
+---
 
-Text-to-SQL is the default demo, and it's the wrong default here for a reason that has nothing to do with whether the model can write SQL.
+## 1. Interface decision: tools, not text-to-SQL
 
-This platform's numbers already have definitions. "Homes passed" is a function over status codes, validated against the client's technical standard. The weekly report excludes certain projects. "Invoiced" means a specific hand-filled field is non-empty. Those definitions live in a semantic SQL layer that the reports read from.
+**Constraint.** Platform metrics have existing definitions implemented in a semantic SQL layer: homes-passed is a function over delivery status codes validated against the client's technical standard; the weekly report excludes a list of projects; "invoiced" is a specific field being non-empty. A model generating its own SQL reads base tables and reproduces none of that. The output is arithmetically valid and inconsistent with the official report for the same question.
 
-A model writing its own SQL doesn't get any of that. It gets tables. It would produce a number that is *arithmetically correct and institutionally wrong* — and then state it fluently, in a sentence, to somebody who is going to paste it into a report that goes to a client.
+**Rule adopted.** Tools wrap the existing business functions; they never reimplement them. The agent and the weekly report resolve to the same view.
 
-So the rule the tool layer is built on: **tools wrap the existing business logic, they never reimplement it.** The agent and the official weekly report resolve to the same view. They cannot disagree, because there is only one definition and neither of them owns it.
+**Implementation.** 19 parameterized tools — project resolution, milestone summary per project and per portfolio, contracts by status, single-record case lookup, readiness queries, anomaly detection. No generic `query(sql)` tool.
 
-That constraint is what makes the tools purpose-built rather than generic. Nineteen of them, parameterized — resolve a project, summarize milestones for one project or the whole portfolio, list contracts by status, fetch a single home's case, find what's ready for the next construction stage. Not one `query(sql)`.
+**Secondary effect.** Users refer to municipalities by name; the database keys on project codes. A dedicated resolver tool converts name to code and returns a miss when it cannot, instead of the model constructing a join against the wrong project.
 
-**It also solved a problem I didn't anticipate.** Users don't say project codes, they say place names. A generic SQL tool would have had the model guessing at a join. A dedicated resolver tool turns the name into a code, or comes back saying it couldn't — which is a much better failure than a confident query against the wrong project.
+**Rejected during review of the first design.** `REPLACE(home_id, '-', '_')` in joins, which disables index usage. The fix is a normalized column in the database, not a string transform in the tool layer.
 
-## Every number arrives with its own coverage
+---
 
-This is the part I'd argue for hardest if someone wanted to cut it.
+## 2. Coverage contract on aggregate responses
 
-A dashboard can quietly drop rows it can't classify. The bar renders slightly shorter, or an "unknown" column sits there at 3 %, and a human reading a chart applies normal human skepticism to it.
+**Problem.** An aggregate that silently excludes rows is acceptable in a dashboard, where the reader sees a chart and applies normal skepticism. An agent emits the figure as a sentence, and the fluency carries an implicit claim of completeness.
 
-An agent has no such affordance. It says *"4,812 homes passed"* in a well-formed sentence, and the fluency is itself an implicit claim of completeness.
+**Design.** Every aggregation tool returns the figure plus a `coverage` object: `{included, excluded[{reason,count}], caveats}`. A period query over milestones returns the count for the period and, where applicable, a caveat naming the rows with no date recorded and therefore outside it. An empty caveat list is itself a statement.
 
-So every aggregation tool returns the figure **plus a coverage block**: what was included, and what caveats apply. A period query over milestones comes back with, in effect, *"and 340 of these have no date recorded, so they're outside this period count."* If nothing was excluded, the caveat list is empty — which is a statement too.
+Two additional fields in the same payload:
 
-Two smaller things ride along in the same payload, and both exist because of how a model reads its own tool output:
+- `source` — names the view the figure came from, identified as the source of the official weekly report. Provenance is data the model holds rather than text it generates.
+- Relationship constraints. One response returns two metrics where one is a strict subset of the other and ships the literal string `"HP+ is a subset of HP; do not add them"`. Two related numbers in one payload are otherwise summed.
 
-- **Provenance.** Each response names the view it came from, identified as *the source of the official weekly report*. If the user asks where the number comes from, that's data the model already has instead of something it invents.
-- **A relationship the model must not get wrong.** One response returns two related metrics where one is a strict subset of the other, and it ships with the literal instruction `"HP+ is a subset of HP; do not add them."` Two numbers side by side is an invitation to sum them. That sentence costs nothing and removes a whole category of confidently-wrong answer.
+**Rule.** A caveat required when a human states the number must travel in the payload, not in the system prompt. Prompt instructions apply to the conversation; they do not attach to the figure.
 
-The general shape: **if a number needs a caveat when a human says it, the tool has to carry that caveat in the payload.** Prompt instructions are the wrong place — they apply to the conversation, not to the number.
+**Pagination.** List tools enforce a hard row cap. When results are truncated the response sets `has_more` and returns a message instructing the orchestrator to narrow the query. Aggregates and exports are separate channels and not subject to the list cap.
 
-List tools are paginated with a hard row cap, and when results are truncated the response says so in a field the orchestrator can act on, with a message telling it to narrow the query. An LLM handed 50,000 rows doesn't answer better; it answers worse, more expensively, or not at all.
+---
 
-## Authorization, in three layers — and the one that ran on the wrong thread
+## 3. Authorization
 
-The business requirement was stated plainly: assigned access to AI at all, and *if you're given one domain's agent, it only answers about that domain.*
+Three layers, from a stated requirement: assigned access to AI at all, and domain restriction — a user granted one domain's agent must not receive answers about another.
 
-**Barrier one and two** turned out to be the same fix. The agent endpoints were gated by a wildcard on a general application role — so anyone authenticated got in, and the agent identifier was a path segment the proxy forwarded without validating. A user could type a different agent's name into the URL. Now a single catalog maps agent to domain, and a guard checks it in both proxies *before* forwarding, which also means an unauthorized request is rejected without spending a model call.
+**Layer 1 and 2 — agent admission.** The stream endpoint was gated by a wildcard path pattern plus a general application role, so any authenticated user passed. The agent identifier was a path segment forwarded by the proxy without validation, so a user could substitute another agent's identifier in the URL.
 
-**Barrier three** is resource scope, and it uses Token Relay rather than an internal API key: the browser's JWT goes to the Python orchestrator, which validates signature and expiry only, then forwards the token intact to the Java MCP server, which validates it again as a resource server and applies the same project-scope guard the REST API uses. **Python never decides authorization** — it authenticates, and that's all. The authorization decision stays in the service that owns the data, and there's exactly one implementation of it.
+Fix: an `AgentCatalog` mapping agent identifier to domain, and `AgentGuard.assertAllowed(agentId)` called in both proxies before forwarding. Authority shape `ROLE_<domain>_AGENT`; one assignment satisfies both requirements. Rejection returns 403 without a model call. `SecurityConfig` changed from a wildcard to `.authenticated()`, with the authorization decision moved to the guard, which knows the agent identifier.
 
-Then the part worth the write-up.
+**Layer 3 — resource scope, via Token Relay.** The browser's JWT is sent to the Python orchestrator, which validates signature and expiry only (`PyJWKClient`) and forwards the token unmodified to the Spring MCP server. Spring validates it as an OAuth2 resource server and applies the same project-scope guard used by the REST API. Python performs authentication, never authorization. M2M and scheduled jobs continue to use an internal token header.
 
-The MCP server executes tools on a **Reactor elastic scheduler — a different thread from the HTTP request**. Spring Security's context is thread-bound. So by the time a tool asked "which projects may this user see?", the security context was empty. The user's identity had been validated twice and then dropped on the floor between the filter and the tool.
+**Defect: security context lost across threads.** The Spring AI MCP server executes tool callbacks on a Reactor elastic scheduler, not the HTTP request thread. `SecurityContextHolder` is thread-bound, so the context was empty when a tool queried the caller's project scopes.
 
-It failed closed, which is the good direction. But the tempting fix is the dangerous one: the check is failing, the call is internal, the token was already validated upstream — so drop the check. That reasoning ends with the only enforcement point for project scope removed, and everything still working perfectly in every test, because in a test you're the user who has access to everything.
+The failure was closed rather than open. The available shortcut — removing the check on the grounds that the call is internal and the token was validated upstream — would have eliminated the only enforcement point for project scope, with no test failing, because test users hold full access.
 
-The actual fix captures the authentication at invocation time, exposes it through an explicit context for the duration of the tool call, and clears it in a `finally`. The clearing isn't decoration: a pooled scheduler thread that keeps one user's identity hands it to the next request.
+Fix: `AuthAwareToolCallbackProvider` wraps every `ToolCallback`, captures the `Authentication` at invocation, exposes it through `McpAuthContext` for the duration of the call, and clears it in `finally`. The clear is required: a pooled scheduler thread retaining one caller's identity would apply it to the next request.
 
-**The generalizable version:** when you bolt a framework onto an async runtime, ask which of your security assumptions were quietly thread-bound. They don't announce themselves — they just stop being true.
+---
 
-## The other agent: a SQL surface built to be attacked
+## 4. SQL admission guard for the pre-existing agent
 
-The first agent predates the MCP work and already answered through SQL. Rather than rewrite it, it got a real admission guard, and the design decisions there are worth stating because the naive version of each is wrong.
+Agent A answered through generated SQL before the MCP work and was retrofitted with an admission guard rather than rewritten.
 
-- **Allowlist of tables actually referenced, not a blocklist of dangerous words.** Blocklists lose. The question is "does every table in this query appear on the list", which is answerable.
-- **Literals and comments are stripped before the analysis.** Otherwise a permitted table name inside a string or a comment can vouch for a query that also touches a forbidden one.
-- **Unqualified table names must be on the list too** — and this is the one that isn't obvious. Postgres resolves them through `search_path`, which reaches the shared schema where other clients' data lives. Accepting unqualified names in bulk is a cross-client read with no exploit required. Anything belonging to that client must be written schema-qualified.
-- **One schema is allowed wholesale**, because it belongs entirely to a single client. That's a deliberate ergonomic exception: adding a view for that client shouldn't require editing a security class, or people will stop adding views — or worse, put them in the shared schema.
+- **Allowlist over the tables actually referenced**, not a blocklist of keywords. The check is whether every table following `FROM` or `JOIN` appears on the list or is a CTE declared in the query's own `WITH`.
+- **Literals and comments stripped before analysis.** Otherwise a permitted table name inside a string or comment can vouch for a query that also references a forbidden one.
+- **Unqualified table names must also be listed.** PostgreSQL resolves them through `search_path`, which reaches the shared `public` schema holding other clients' tables. Admitting unqualified names in bulk permits a cross-client read. Client tables must be referenced schema-qualified.
+- **One schema is allowed wholesale** because it belongs entirely to a single client, so adding a view for that client does not require editing the guard class.
+- `MAX_SQL_LEN` 8000. Read-only execution path.
 
-Two agents, two surfaces, one principle: the surface is as wide as the domain requires and not one table wider.
+---
 
-## What actually broke: an SSE session reused across tasks
+## 5. Incident: SSE session reused across asyncio tasks
 
-The MCP agent's stream would hang for about thirty seconds and die, then throw on teardown: *attempted to exit a cancel scope in a different task than it was entered in.*
+**Symptom.** The MCP agent stream hung for approximately 30 seconds, then terminated. Teardown raised `RuntimeError: Attempted to exit cancel scope in a different task than it was entered in`.
 
-**The diagnosis came from the comparison, not the stack trace.** The other agent — same platform, same model, same streaming path, but talking over plain HTTP instead of MCP — worked perfectly. That eliminated rate limiting, the network, the model, and the streaming layer in one step, and left the MCP client holding the bag.
+**Isolation.** Agent A — same platform, same model, same streaming path, but calling over plain `httpx` rather than MCP — was unaffected. No 429 responses. That eliminated rate limiting, the network, the model and the streaming layer, and localized the fault to the MCP client.
 
-The client opened its SSE connection once and reused the session across calls. The MCP SDK builds on anyio task groups, whose cancel scopes must be entered and exited **in the same task** — and the streaming response is an async generator, so every `yield` back to the web framework crosses a task boundary. The reader task was orphaned; the tool's response was never delivered; the connection sat there until it timed out.
+**Root cause.** The client opened the SSE connection once (`connect()` with an `AsyncExitStack`, stored on `self.session`) and reused it across `call_tool`. The MCP SDK's `sse_client` and `ClientSession` use anyio task groups, whose cancel scopes must be entered and exited in the same task. The streaming response is an async generator, so each `yield` back to the web framework crosses a task boundary. The SSE reader task was orphaned and the tool response was never delivered.
 
-Every call now opens, initializes, uses, and closes its own connection with no yields in between. That costs a reconnect per call. Connection pooling is a real optimization and it's written down as one — but it's an optimization on top of something correct, not a substitute for fixing it.
+**Fix.** `list_tools`, `call_tool` and `read_resource` each open, initialize, use and close their own SSE connection inside a single `async with self._session()` block with no yields in between. The per-call reconnect is the accepted cost; connection pooling is recorded as a later optimization.
 
-## Turning a thumbs-down into a test case
+---
 
-Every other write-up in this portfolio refuses to change something without a measurement. An agent is where that's hardest: the output is prose, the failure is "that answer was wrong-ish", and the temptation is to edit the prompt and see if it feels better.
+## 6. Evaluation and feedback pipeline
 
-So the feedback is wired to the evaluations.
+**Problem.** Agent output is prose and failures are qualitative, so prompt changes are otherwise evaluated by impression.
 
-A negative rating in production doesn't become a ticket. It's joined back to the conversation turn that produced it **and to the tool calls underneath it** — which tool ran, with what arguments — then heuristically classified into a probable failure category and inserted as a *pending candidate*, deduplicated by feedback id. A human confirms or corrects the category before it becomes a permanent evaluation case. The classifier is allowed to be wrong precisely because it isn't the last step.
+**Feedback pipeline.** A negative rating (`rating = -1`) in production is joined to the conversation turn that produced it and to the `tool_calls` underneath it — which tool ran, with which arguments — then classified heuristically into a probable failure category and inserted into `eval_candidates` with `status='pending'`, deduplicated by feedback id. A human confirms or corrects the category before it becomes a permanent case.
 
-That last detail is the one that makes it work. Without the tool calls attached, a bad answer is unattributable: you can't tell whether the model picked the wrong tool, extracted the wrong parameters, or got the right data and summarized it badly. Those are three different bugs with three different fixes, and the raw text of a complaint distinguishes none of them.
+The tool-call join is what makes a bad answer attributable: wrong tool selected, wrong parameters extracted, and correct data summarized badly are three distinct defects with three distinct fixes, and the complaint text distinguishes none of them.
 
-The suites split along exactly those lines — tool routing, planning, name resolution, answer synthesis, and per-domain question banks. Scoring uses a model as judge, because the answers are prose and string equality would only measure phrasing; runs are persisted with pass/fail per case, so a prompt change produces a number rather than an impression.
+**Eval suites.** Six: tool routing, planning, name resolution, answer synthesis, and two domain question banks. Scoring uses an LLM judge, since string equality would measure phrasing. Runs are persisted with per-case pass/fail.
 
-Two honest limits: the judge belongs to the same model family as the agent under test, which is a known weakness in this style of evaluation, and the suite runs sequentially to stay under rate limits, so it's slow enough that it's a deliberate act rather than something on every commit.
+**Known limitations.** The judge belongs to the same model family as the agent under test. The runner executes sequentially (`Semaphore(1)`) to stay under rate limits, so the suite is slow and is run deliberately rather than per commit.
 
-## Where it stands, honestly
+---
 
-The MCP path works end to end. The open item is stated rather than smoothed over: **the model runs on a free tier**, and the agent makes about two calls per question, so rapid successive questions hit a rate limit. The backoff then outlasts the servlet's async timeout, which turns a rate limit into a dead stream. Accepted and deferred by decision, not by oversight — moving the stream off the servlet path removes the timeout half, and the other half is a billing change.
+## Current state
 
-The design was rewritten once already: the first version was drafted against raw tables, and reading real user questions against it showed the business logic it needed was already implemented in the semantic layer. The second version wraps that layer instead of duplicating it, and it exists because seven actual questions from actual users were used as the specification instead of an imagined API.
+The MCP path works end to end. One open item: the model runs on a free tier and the agent issues approximately two model calls per question with `tool_mode=ANY`, so successive requests hit the rate limit. The backoff (~54 s) exceeds the servlet async timeout (30 s), converting a rate limit into a terminated stream. Deferred by decision. Moving the stream off the servlet path removes the timeout; the remainder is a billing change.
 
-## Takeaway
+**Design revision.** The first design targeted base tables. Profiling seven real user questions against it showed the required business logic already existed in the semantic SQL layer, including a project exclusion list applied by the official report that tools would otherwise contradict. The second version wraps that layer. Six blocking questions were resolved by a profiling script first — actual enum values, field distributions and cardinalities — because filtering on an assumed value returns zero rows without an error.
 
-The hard part of putting a model in front of a business is not the model. It's that **a language model's output has no visible uncertainty**, so everything that a human would have hedged has to be made structural: the definition it can't reinvent, the caveat travelling with the number, the scope check that survives the thread change, and the table it cannot name.
+## Tech stack
 
-## Tools
-
-Model Context Protocol · Spring AI MCP server (SSE) · Spring Boot · Spring Security OAuth2 Resource Server · Keycloak (Token Relay) · FastAPI · Python · anyio · Google Gemini · PostgreSQL semantic views · ADRs as the record of what was decided and why
+Model Context Protocol · Spring AI MCP server (SSE) · Spring Boot · Spring Security OAuth2 Resource Server · Keycloak (Token Relay) · FastAPI · Python · anyio · Google Gemini · PostgreSQL semantic views
