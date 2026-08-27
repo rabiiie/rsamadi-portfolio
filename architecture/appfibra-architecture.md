@@ -26,7 +26,7 @@ flowchart TB
 ## Key Design Decisions
 
 - GIS-first data model on PostgreSQL/PostGIS, not a relational schema with geometry bolted on afterward.
-- Native SQL/JDBC for the GIS and reporting workloads, where an ORM would hide the query plans that actually need tuning.
+- JPA/Hibernate for simple CRUD entities (auth), native SQL/JDBC for GIS and reporting — where an ORM would hide the query plans that actually need tuning.
 - Expensive construction-study numbers are precomputed into batch tables instead of calculated per request — computing them live doesn't hold up at the platform's concurrent-user targets.
 - Mobile field workflows are offline-first: crews work where signal isn't reliable, so writes queue on the device and sync when connectivity comes back.
 - The GIS layer went from one client to three without a rewrite, because layer roles and resolvers are configurable per client instead of hardcoded to one.
