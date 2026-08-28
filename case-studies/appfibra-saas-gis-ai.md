@@ -13,6 +13,18 @@ Web/mobile SaaS platform for FTTH network deployment: GIS, field operations, con
 
 Row counts cited in the sections below are per dataset, not platform totals. Several tables cover the same footprint — network records, contracts, activations — so a figure such as 164,107 is the size of one imported table.
 
+## Origin
+
+The platform began as a personal project, which is why the role above is sole developer rather than team lead.
+
+It was preceded by a data-correctness problem: a fixed-length value exported from the client's platform was altered by geospatial processing, and the discrepancy propagated into bill-of-material calculations. The correction was derived in SQL and packaged as a Python plugin with a graphical interface so the rest of the team could apply it without running queries.
+
+An earlier attempt to build the follow-up platform itself with contracted developers was abandoned. The constraint was domain knowledge rather than engineering capability: the requirements loop consumed more of the operations team's time than the tool returned. What was rebuilt afterwards started from the domain side instead.
+
+Construction was incremental and driven by requirements rather than by stack preference: Spring Boot with server-rendered templates first, REST once editable tables were introduced, then a migration to React. The business adopted it after a demonstration. It now covers fibre and production tracking and feeds a separate maintenance and installations application.
+
+---
+
 Five defects and design decisions are documented below. Performance work has separate write-ups: [Data Grid Performance](measured-performance-diagnosis.md) (browser) and [Capacity and Database Performance](capacity-and-database-performance.md) (server). Delivery pipeline: [CI Pipeline](ci-pipeline-what-blocks.md).
 
 ---
