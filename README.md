@@ -1,59 +1,59 @@
-# Rabie Samadi - Backend, GIS & AI SaaS Portfolio
+# Rabie Samadi — Backend, GIS e IA en SaaS de producción
 
-I build production SaaS platforms — backend, GIS, AI agents, and the security work that comes with real users and real clients.
+Construyo plataformas SaaS que están en producción: backend, GIS, agentes de IA y la parte de seguridad que aparece en cuanto hay usuarios y clientes reales.
 
-This repo has sanitized write-ups of what I've shipped. No proprietary code, no client data, no production internals — just the architecture and the decisions behind it.
+Aquí tienes los write-ups de lo que he hecho, sin código propietario, sin datos de cliente y sin interioridades de producción. Solo la arquitectura y las decisiones.
 
-## Selected Case Studies
+## Casos
 
-- [AppFibra - SaaS GIS, AI Agents & Enterprise Security](case-studies/appfibra-saas-gis-ai.md)
-- [WilayaCenter Pharma - Pharmacy SaaS](case-studies/wilayacenter-pharma-saas.md)
-- [Domain AI Agents on MCP - semantic tools over text-to-SQL](case-studies/mcp-agents-semantic-tools.md)
-- [Photo Documentation - OCR, geocoding and watermark removal](case-studies/photodoc-silent-failures.md)
-- [Data Grid Performance - browser-side diagnosis](case-studies/measured-performance-diagnosis.md)
-- [Capacity and Database Performance - load testing and query work](case-studies/capacity-and-database-performance.md)
-- [CI Pipeline - which checks are allowed to block](case-studies/ci-pipeline-what-blocks.md)
-- [Technical architecture diagrams](diagrams/appfibra-platform.md)
-- [Talking points, the 60-second version](presentation/rabie-samadi-technical-portfolio.md)
+- [AppFibra — SaaS GIS, agentes de IA y seguridad](case-studies/appfibra-saas-gis-ai.md)
+- [WilayaCenter Pharma — ERP/TPV para farmacia](case-studies/wilayacenter-pharma-saas.md)
+- [Agentes de IA sobre MCP — tools en vez de text-to-SQL](case-studies/mcp-agents-semantic-tools.md)
+- [Documentación fotográfica — OCR, geocoding y borrado de marcas](case-studies/photodoc-silent-failures.md)
+- [Rendimiento de una tabla de datos — diagnóstico en el navegador](case-studies/measured-performance-diagnosis.md)
+- [Capacidad y base de datos — pruebas de carga y trabajo de queries](case-studies/capacity-and-database-performance.md)
+- [Pipeline de CI — qué comprobaciones pueden bloquear](case-studies/ci-pipeline-what-blocks.md)
+- [Diagramas de arquitectura](diagrams/appfibra-platform.md)
+- [Resumen en 60 segundos](presentation/rabie-samadi-technical-portfolio.md)
 
-## Core Strengths
+## Lo que sé hacer
 
-- Backend: Java 17, Spring Boot, REST/SSE APIs, PostgreSQL, running in production.
-- GIS: PostGIS, vector tiles, SHP imports, CRS/EPSG — built for field workflows, not just a map on a screen.
-- AI agents on MCP: FastAPI, streaming, persistent history, and an actual feedback-to-eval loop instead of guessing whether a prompt change helped.
-- Applied AI in real workflows: OCR for supplier documents, narrative payroll summaries, semantic product search over embeddings.
-- Security: Spring Security, Keycloak/OAuth2, RBAC, CSRF/CORS, RLS, resource scopes, M2M auth between services.
-- Multi-client GIS: configurable layers, per-client resolvers, precomputed KPIs, filtering pushed down to the backend.
-- CI with security built in, not bolted on: GitHub Actions running secret scanning over full history, SAST, dependency auditing and SBOM, with the Spring context validated against a real PostGIS container — and query plans asserted against that same container, so a deleted index fails a pull request instead of a production afternoon.
-- Performance work driven by measurement rather than intuition — profiling, microbenchmarks, load testing with k6, query plans read with `EXPLAIN (ANALYZE, BUFFERS)`, and reversing my own architecture decisions when the numbers disagree with them.
-- End-to-end delivery — requirements through architecture, implementation, deployment, and keeping it running afterward.
+- **Backend**: Java 17, Spring Boot, APIs REST y SSE, PostgreSQL. En producción, no en un tutorial.
+- **GIS**: PostGIS, vector tiles, importación de SHP, CRS/EPSG. Pensado para trabajo de campo, no para pintar un mapa bonito.
+- **Agentes de IA sobre MCP**: FastAPI, streaming, historial persistente, y un circuito que convierte el feedback negativo de producción en casos de evaluación — para saber si un cambio de prompt ha mejorado algo o solo lo parece.
+- **IA aplicada a trabajo real**: OCR de albaranes de proveedor, resúmenes de nómina en lenguaje natural, búsqueda de producto por lenguaje natural.
+- **Seguridad**: Spring Security, Keycloak/OAuth2, RBAC, CSRF/CORS, RLS, scopes por recurso, autenticación M2M entre servicios.
+- **GIS multicliente**: capas configurables, resolvers por cliente, KPIs precalculados, filtrado empujado al backend.
+- **CI con seguridad desde el principio**: GitHub Actions con escaneo de secretos sobre todo el historial, SAST, auditoría de dependencias y SBOM. El contexto de Spring arranca contra un contenedor PostGIS real, y sobre ese mismo contenedor se comprueban los planes de ejecución: si alguien borra un índice, el pull request se pone en rojo.
+- **Rendimiento medido, no intuido**: profiling, microbenchmarks, pruebas de carga con k6, planes leídos con `EXPLAIN (ANALYZE, BUFFERS)`. Incluyendo revertir decisiones de arquitectura mías cuando los números las contradicen.
+- **De principio a fin**: requisitos, arquitectura, implementación, despliegue y mantenerlo funcionando después.
 
-## Production Signals
+## Datos de producción
 
-- 2 production SaaS platforms, different verticals (FTTH infrastructure, pharmacy ERP/POS), both built and run solo.
-- +200 municipalities, +200,000 homes covered by the FTTH platform's GIS/network data.
-- 3 active industrial clients on the main platform.
-- 50-100 concurrent users in day-to-day operational workflows.
-- Load-tested to a measured knee between 150 and 300 concurrent virtual users — at 300, all six thresholds crossed at 187 req/s. That measurement is what sized the production machine.
-- 3 internal services talking to each other through M2M authentication.
-- Resource-level authorization down to project/city scope.
+- 2 plataformas SaaS en producción, en sectores distintos (infraestructura FTTH y ERP/TPV de farmacia), las dos construidas y mantenidas por mí.
+- +200 municipios y +200.000 homes cubiertos por los datos de red de la plataforma FTTH.
+- 3 clientes industriales activos.
+- 50-100 usuarios concurrentes en el día a día.
+- Punto de saturación medido entre 150 y 300 usuarios concurrentes: a 300 se cruzaron los seis umbrales, a 187 req/s. Con ese número se dimensionó la máquina de producción.
+- 3 servicios internos que se hablan entre sí con autenticación M2M.
+- Autorización a nivel de recurso, hasta proyecto o ciudad.
 
-## Tech Stack
+## Stack
 
-Java 17 · Spring Boot · Spring Security · Keycloak/OAuth2 · React · PostgreSQL · PostGIS · PostgresML · FastAPI · Python · Model Context Protocol (MCP) · Google Cloud Document AI · Google Gemini · MapLibre/Leaflet · Capacitor · SQLite · Power BI · GitHub Actions · Semgrep · Testcontainers · k6
+Java 17 · Spring Boot · Spring Security · Keycloak/OAuth2 · React · PostgreSQL · PostGIS · FastAPI · Python · Model Context Protocol (MCP) · Google Cloud Document AI · Google Gemini · Amazon Textract · Amazon Bedrock · MapLibre/Leaflet · Capacitor · SQLite · Power BI · GitHub Actions · Semgrep · Testcontainers · k6
 
-## Architecture Snapshot
+## Arquitectura, de un vistazo
 
 ```mermaid
 flowchart LR
-    Web["Web Office UI"] --> API["Spring Boot SaaS Backend"]
-    Mobile["Mobile Field UI<br/>offline-first"] --> API
+    Web["Web de oficina"] --> API["Backend Spring Boot"]
+    Mobile["App de campo<br/>offline-first"] --> API
     API --> DB[("PostgreSQL / PostGIS")]
-    API --> GIS["GIS import, tiles<br/>and analysis pipelines"]
-    API --> IAM["Keycloak / OAuth2<br/>resource scopes"]
-    API --> Agents["FastAPI AI Agents"]
-    API --> Photos["Photo Processing Service"]
-    API --> External["External Workorders API<br/>mirror + audit"]
+    API --> GIS["Importación GIS, tiles<br/>y análisis"]
+    API --> IAM["Keycloak / OAuth2<br/>scopes por recurso"]
+    API --> Agents["Agentes de IA<br/>FastAPI"]
+    API --> Photos["Servicio de fotos"]
+    API --> External["API externa de partes<br/>espejo + auditoría"]
 
     GIS --> DB
     Agents --> API

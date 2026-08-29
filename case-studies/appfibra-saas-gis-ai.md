@@ -1,144 +1,149 @@
-# AppFibra — SaaS GIS, AI Agents & Enterprise Security
+# AppFibra — SaaS GIS, agentes de IA y seguridad
 
-> Sanitized: no proprietary code, credentials or client data. Identifiers generalized.
+> Write-up saneado: sin código propietario, sin credenciales y sin datos de cliente. Los identificadores están generalizados.
 
-## Scope
+## De qué va
 
-Web/mobile SaaS platform for FTTH network deployment: GIS, field operations, construction follow-up, reporting, document workflows, AI-assisted analysis.
+Plataforma SaaS web y móvil para el despliegue de redes FTTH: GIS, operativa de campo, seguimiento de obra, informes, flujos documentales y análisis asistido por IA.
 
-- Coverage: +200 municipalities, +200,000 homes, 3 industrial clients.
-- Load: 50-100 concurrent users; target 500.
-- Role: sole developer — architecture, backend, frontend, data model, GIS, security, deployment, production support.
-- Data flow: most records arrive from daily ETL jobs over files produced by third-party systems. Outputs feed client reports and invoicing.
+- **Cobertura**: +200 municipios, +200.000 homes, 3 clientes industriales.
+- **Carga**: 50-100 usuarios concurrentes. El objetivo son 500.
+- **Mi papel**: único desarrollador. Arquitectura, backend, frontend, modelo de datos, GIS, seguridad, despliegue y soporte en producción.
+- **De dónde vienen los datos**: la mayoría de los registros entran por jobs ETL diarios que leen ficheros generados por sistemas de terceros. Lo que sale alimenta informes de cliente y facturación.
 
-Row counts cited in the sections below are per dataset, not platform totals. Several tables cover the same footprint — network records, contracts, activations — so a figure such as 164,107 is the size of one imported table.
+Las cifras de filas que aparecen más abajo son de cada dataset, no totales de la plataforma. Varias tablas cubren el mismo territorio — datos de red, contratos, activaciones — así que un número como 164.107 es el tamaño de una tabla importada.
 
-## Origin
+## Cómo empezó
 
-The platform began as a personal project, which is why the role above is sole developer rather than team lead.
+La plataforma nació como proyecto personal. Por eso arriba pone *único desarrollador* y no *responsable de equipo*.
 
-It was preceded by a data-correctness problem: a fixed-length value exported from the client's platform was altered by geospatial processing, and the discrepancy propagated into bill-of-material calculations. The correction was derived in SQL and packaged as a Python plugin with a graphical interface so the rest of the team could apply it without running queries.
+Antes de eso hubo un problema de datos. Un valor de longitud que se exportaba de la plataforma del cliente cambiaba al procesarlo geoespacialmente, y esa diferencia acababa en el cálculo del Bill of Material. Saqué la corrección a base de consultas SQL hasta dar con la fórmula que devolvía el valor al original, y la empaqueté en un plugin de Python con interfaz gráfica para que mis compañeros pudieran aplicarla sin tocar una query.
 
-An earlier attempt to build the follow-up platform itself with contracted developers was abandoned. The constraint was domain knowledge rather than engineering capability: the requirements loop consumed more of the operations team's time than the tool returned. What was rebuilt afterwards started from the domain side instead.
+Después la empresa contrató desarrolladores para hacer la plataforma de seguimiento, y a mí me pusieron de enlace de datos. El proyecto se abandonó. El problema no era su nivel técnico: era el conocimiento del negocio. Necesitaban tanta información nuestra que el bucle de requisitos costaba más tiempo del que la herramienta ahorraba.
 
-Construction was incremental and driven by requirements rather than by stack preference: Spring Boot with server-rendered templates first, REST once editable tables were introduced, then a migration to React. The business adopted it after a demonstration. It now covers fibre and production tracking and feeds a separate maintenance and installations application.
+Lo que construí después empezó por el otro lado, por el dominio. Y creció a base de necesidades, no de elegir stack: primero Spring Boot con plantillas servidas, luego REST en cuanto metí tablas editables, y después la migración a React. Se lo enseñé a mi jefa y la empresa lo adoptó. Hoy lleva el control de fibra y producción, y alimenta otra aplicación de mantenimiento e instalaciones.
 
----
-
-Five defects and design decisions are documented below. Performance work has separate write-ups: [Data Grid Performance](measured-performance-diagnosis.md) (browser) and [Capacity and Database Performance](capacity-and-database-performance.md) (server). Delivery pipeline: [CI Pipeline](ci-pipeline-what-blocks.md).
+Debajo hay cinco defectos y decisiones. El trabajo de rendimiento tiene write-ups aparte: [navegador](measured-performance-diagnosis.md) y [servidor](capacity-and-database-performance.md). El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md).
 
 ---
 
-## 1. ETL change audit reporting false modifications
+## 1. Una auditoría que reportaba cambios falsos
 
-**Problem.** The daily import maintained a change history used to attribute record modifications when a client disputed a figure. On a 164,107-row dataset it reported approximately 96,000 modified rows per run. Nearly all were false.
+**El problema.** La importación diaria guardaba un historial de cambios, para poder decir quién tocó qué cuando un cliente discutía una cifra. Sobre un dataset de 164.107 filas reportaba unas 96.000 filas modificadas en cada ejecución. Casi todas falsas.
 
-**Root cause.** In-memory string comparison between the incoming CSV and the stored rows. Date columns were stored as `2020-09-23 16:10:54` and delivered as `23/09/2020 16:10` — same instant, different representation. Every dated row was marked modified on every run.
+Un historial con ese ruido no es un historial malo: es un historial inútil. Nadie busca un cambio real entre 96.000 falsos.
 
-**Fix.**
+**La causa.** Comparaba en memoria, como texto, el CSV que entraba contra las filas guardadas. Las fechas estaban almacenadas como `2020-09-23 16:10:54` y llegaban como `23/09/2020 16:10`. Mismo instante, distinta representación. Cada fila con fecha salía modificada todos los días.
 
-- Diff moved into the database. Each run loads the source file into `stg_<dataset>`, recreated `LIKE target` on every run so the comparison uses the target's real column types.
-- Column-by-column comparison via `LATERAL VALUES`. The first implementation diffed `to_jsonb(row)`; a single mis-formatted date marks the entire row as changed and does not identify which field moved.
-- Date columns compared by day, through a `to_date` wrapper accepting both `dd/MM` and ISO. Business rule: the date is significant, the time is not.
-- Delete guardrail: a snapshot import aborts if it would delete more than 20 % of a target holding ≥100 rows.
-- `INSERT`/`DELETE` retain a `jsonb` snapshot — stored, not compared.
+**Lo que hice.**
 
-**Result.** Production verification on the first migrated dataset: 164,107 rows processed, 0 changes reported. The mechanism is dataset-agnostic; remaining datasets are queued.
+- **Moví el diff a la base de datos.** Cada ejecución carga el fichero en una tabla de staging creada `LIKE` la tabla destino, así que la comparación usa los tipos reales de las columnas. Comparando fecha contra fecha, el formato deja de existir como problema.
+- **Columna a columna, con `LATERAL VALUES`.** El primer intento comparaba `to_jsonb(row)`, que es más elegante y está mal por dos motivos: una sola fecha mal formateada marca la fila entera, y encima no te dice qué campo se movió — que es justo para lo que existe el historial.
+- **Las fechas se comparan por día.** Esto no es una decisión técnica, es una regla de negocio: aquí la fecha cuenta y la hora no. Si un hito pasa de las 16:10 a las 16:54 del mismo día, para el seguimiento de obra no ha cambiado nada.
+- **Freno de borrado.** Una importación de tipo snapshot se aborta si va a borrar más del 20% de una tabla con 100 filas o más. Un fichero que llega truncado es algo que pasa; vaciar media tabla porque el fichero venía cortado, no.
+- **Las altas y bajas guardan un snapshot `jsonb`.** Ahí sí vale: se guarda, no se compara.
 
-**Two defects found during the rebuild, unrelated to auditing:**
+**El resultado.** Verificado en producción sobre el primer dataset migrado: 164.107 filas procesadas, **0 cambios reportados**. El mecanismo no depende del dataset; el resto están en cola.
 
-- A materialized view backing the follow-up screens was never refreshed. It held data, so nothing appeared broken, and a second view downstream inherited the staleness. Refresh is now chained in dependency order after the import that feeds it.
-- One dataset has no unique key per row: two rows can share every identifying column. Inspection showed these are distinct jobs on the same order with different work types, not duplicates, so deduplication would delete valid records. That dataset is audited by content hash (`md5` over `to_jsonb` minus excluded columns): present in staging and absent from target is an insert, the inverse is a delete, and a field change registers as one of each.
+**Y de paso aparecieron dos cosas que no tenían que ver con la auditoría:**
 
----
+Una vista materializada de la que leen las pantallas de seguimiento **no se refrescaba nunca**. Tenía datos, así que nada parecía roto. Solo estaban viejos, y una segunda vista que leía de ella heredaba el desfase. Ahora se refresca encadenada, en orden de dependencia, después de la importación que la alimenta.
 
-## 2. Per-report authorization
-
-**Requirement.** Grant report access individually — a user may hold the weekly report and not the activations report. Report count was growing per client.
-
-**Design.** Reports modelled as a module, each report as an area within it, reusing the permission shape already used for column groups. A single catalog class maps client to report list. Derived from it: the authority name, the permission-model entry, the module entry, and the assignment chips in the admin UI. Adding a report is a one-line change to the catalog.
-
-**Defect found during implementation.** The report identifier arrives as a request parameter and was resolved independently in three locations in the same controller: table selection, export filename, and a comparison endpoint. All three were individually correct. If any two diverge, the guard authorizes one report while the query serves another.
-
-**Fix.** Single resolver, and a single `guardedTable(report)` method that resolves, calls the guard and returns the table. No code path reaches report data without passing the check. Endpoints that do not select a table by report identifier call the guard explicitly.
-
-**Behaviour change.** Report access was previously inherited by any follow-up role. Removed: report access now requires an explicit grant. Applied at that point because the bulk of the user base had not yet been created and the migration cost was zero.
-
-**Retained by decision.** Reports keep resource-scope filtering. The role determines which report, the scope determines how many projects.
+Y un dataset no tiene clave única por fila: dos filas pueden compartir todas las columnas que identifican. Lo normal sería deduplicar. Al mirarlas resultó que eran trabajos distintos sobre el mismo pedido, con tipos de trabajo diferentes, así que deduplicar habría borrado registros válidos para que el algoritmo estuviera cómodo. Ese se audita por hash de contenido — `md5` sobre el `to_jsonb` de la fila menos las columnas excluidas: si está en staging y no en destino es un alta, al revés una baja, y un cambio de campo aparece como las dos cosas. Es menos preciso y no miente.
 
 ---
 
-## 3. Frontend re-deriving authorization
+## 2. Permisos por informe
 
-**Problem.** Route guards, navigation and landing logic in the React app each maintained their own hand-written union of role names. New role families were not added to those lists. Two failure modes resulted: users denied screens they were entitled to, and navigation links resolving to 403.
+**Lo que pedía el negocio.** Poder dar acceso a un informe sí y a otro no: este usuario ve el semanal pero no el de activaciones. Y los informes crecían, varios por cliente.
 
-**Root cause.** A second implementation of an authorization rule the backend already computed correctly. The backend module map was complete throughout; only the frontend consumers had drifted.
+**El diseño.** Los informes son un módulo y cada informe un área dentro de él, reutilizando la forma de permiso que la plataforma ya usaba para los grupos de columnas. Un único catálogo mapea cliente → lista de informes, y de ahí salen solos el nombre de la authority, la entrada del modelo de permisos, la del módulo y los chips de la pantalla de asignación. **Añadir un informe es una línea.**
 
-Of the two failure modes, only the 403 is reported by users. A screen the user is entitled to and never sees produces no error and no ticket.
+**El fallo que encontré escribiéndolo.** El identificador del informe llega como parámetro de la petición, y se estaba resolviendo por separado en tres sitios del mismo controller: para elegir la tabla, para el nombre del export y en un endpoint de comparación. Los tres eran correctos.
 
-**Fix.** `/api/session` returns `allowedModules` and `allowedReports`. Route guards and the navigation catalog consume those directly instead of recomputing from `session.roles`. Adding a role family now requires editing one map on the server.
+Pero tres interpretaciones de una misma entrada es un bypass esperando una errata: en cuanto dos discrepan, el guard autoriza un informe y la query sirve otro. Ahora resuelve un único sitio, y hay un solo método que resuelve, llama al guard y devuelve la tabla. No queda camino que llegue a los datos sin pasar el control.
 
-**Dead code removed in the same pass:** a landing-priority table superseded by a backend-provided landing path, and a navigation entry requiring a role family unrelated to the one its route enforced.
+**Un cambio de comportamiento a propósito.** Antes, tener cualquier rol de seguimiento te daba los informes por herencia. Lo quité: ahora hay que concederlos explícitamente. Lo hice en ese momento justamente porque el grueso de los usuarios todavía no estaba creado y migrar costaba cero. Seis meses después habría sido una semana de soporte.
 
----
-
-## 4. Undo over the change audit
-
-**Feature.** The platform mirrors an external work-orders API with an append-only, field-level change log. Undo is built on that log: a single edit or a whole save can be reverted under optimistic locking.
-
-The preview classifies affected rows into three groups: untouched since the edit, overwritten by another user in the interim, and outside the current user's scope. Force-overwriting the second group requires explicit confirmation.
-
-**Defect found during implementation.** The audit did not record the first edit of each row — the write that creates its manual layer over imported data. Undo would return no result for any row edited exactly once, which is the highest-probability case for a revert request. The failure mode is silent: no error, no log entry, no failing test.
-
-**Fix.** First edit recorded, so every row has a prior state to revert to.
+**Lo que mantuve.** Los informes siguen filtrando por scope. El rol decide qué informe, el scope cuántos proyectos.
 
 ---
 
-## 5. Verification of the homes-passed definition
+## 3. El frontend recalculaba permisos que el backend ya sabía
 
-**Context.** "Homes passed" is derived from delivery status codes by a database function. The implementation was the only written definition; it had not been checked against the client's technical standard.
+**El problema.** Los guards de ruta, la navegación y la lógica de aterrizaje mantenían cada uno su propia unión de nombres de rol, escrita a mano. Cuando aparecía una familia de roles nueva, esas listas no se actualizaban. Y fallaba en las dos direcciones: usuarios a los que se les negaban pantallas que sí les tocaban, y enlaces de menú que llevaban a un 403.
 
-**Findings.**
+**La causa.** Había una segunda implementación de una regla que el backend ya calculaba bien. El mapa de módulos del servidor estuvo correcto todo el tiempo; los que se habían desviado eran los consumidores del frontend.
 
-- One code marked as homes-passed in the standard's own table is excluded by the function. The exclusion is correct — that column describes planning scope, not built infrastructure — but the reason was undocumented.
-- One code is not homes-passed under the standard and is counted by the function. Impact: 10 homes in the active portfolio. Open pending a decision to exclude it.
+De los dos fallos, **solo el 403 lo reporta alguien**. Una pantalla que te corresponde y nunca ves no genera error, ni ticket, ni rastro. Parece simplemente que esa función no se hizo para ti.
 
-**Outcome.** The counting logic was substantially correct. The change of state is that the definition now has a written source that is not the source code, recorded against the standard's section reference. All consumers, including the AI agent tools, call the same two functions, so a correction propagates from one place.
+**La solución.** `/api/session` devuelve `allowedModules` y `allowedReports`, y el frontend pinta eso en vez de recalcularlo desde `session.roles`. Añadir una familia de roles hoy es tocar un único mapa en el servidor.
 
-**Related, documented rather than fixed.** The field determining whether a home counts as invoiced is free text entered by hand. Parsing requires eight regular expressions and has two unresolvable classes of value: one non-parseable placeholder and one week-without-year format that cannot be assigned to a month. The canonical definition was narrowed to "field is present and non-empty".
+De paso cayó código muerto: una tabla de prioridad de aterrizaje que ya sustituía un dato del backend, y una entrada de navegación que pedía una familia de roles distinta de la que exigía su propia ruta.
 
 ---
 
-## Platform capabilities
+## 4. El undo, y la edición que nunca se registró
 
-**GIS** — PostGIS model for network layers, vector tiles/MVT, SHP import pipelines with CRS/EPSG handling, MapLibre/Leaflet frontend workflows, precomputed construction-status tables, per-client configurable layer roles and resolvers, backend-side project filtering.
+**Qué es.** La plataforma mantiene un espejo de una API externa de partes de trabajo, con un log de cambios campo a campo en el que solo se añade. El undo se apoya en ese log: se puede revertir una edición suelta o un guardado entero, con bloqueo optimista.
 
-**AI agents** — domain agents over the Model Context Protocol exposing a semantic tool layer rather than text-to-SQL; tools wrap the same views the official reports read. Separate write-up: [Domain AI Agents on MCP](mcp-agents-semantic-tools.md).
+La vista previa separa las filas en tres grupos: las que nadie ha tocado desde entonces, las que otro usuario ha sobrescrito mientras tanto, y las que quedan fuera del scope del que revierte. Pisar el segundo grupo exige una confirmación explícita, porque estás descartando trabajo de otra persona.
 
-**Security** — Spring Security over a Keycloak/OAuth2 foundation, resource scopes at project/city level, PostgreSQL RLS for tenant isolation, CSRF on mutations, restricted CORS in production, session auditing, internal M2M authentication between the Java backend and two Python services.
+**Lo que encontré construyéndolo.** La auditoría **no registraba la primera edición de cada fila** — la que crea su capa manual sobre el dato importado.
 
-**Operations** — optimistic locking for concurrent grid editing, scheduled jobs with per-run tracking, operational dashboards over the import pipeline.
+O sea que el undo no habría devuelto nada justo para las filas editadas una sola vez, que son las que con más probabilidad quieres revertir. Y no habría fallado: ni error, ni línea en el log, ni test en rojo. Un botón que no hace nada.
 
-**Photo documentation** — OCR, geocoding and watermark removal over field photographs. Separate write-up: [Photo Documentation](photodoc-silent-failures.md).
+**El arreglo.** Registrar también la primera edición, para que toda fila tenga un estado anterior al que volver.
 
-## Architecture
+---
+
+## 5. Verificar un número en vez de fiarse del código
+
+**El contexto.** "Homes passed" es la cifra sobre la que gira este negocio, y la calcula una función de base de datos a partir de códigos de estado. Esa implementación era la única definición escrita que existía, y nadie la había contrastado con la normativa técnica del cliente.
+
+**Lo que salió.** La cuenta estaba bien en lo esencial. Dos cosas no.
+
+- Un código que la propia tabla de la normativa marca como homes passed está excluido por la función. La exclusión es correcta — esa columna describe alcance de planificación, no infraestructura construida — pero el motivo no estaba escrito en ningún sitio.
+- Otro código que la normativa **no** cuenta como homes passed sí lo contaba la función. Impacto: 10 homes de la cartera activa. Pendiente de decidir si se excluye.
+
+**Lo que cambió.** Sobre todo, que el número ya tiene una fuente escrita que no es el código fuente, referenciada contra el apartado de la normativa. Todos los que consumen esa cifra, incluidas las tools del agente de IA, llaman a las mismas dos funciones, así que una corrección se propaga desde un solo sitio.
+
+**Y algo relacionado que documenté en vez de arreglar.** El campo que decide si un home cuenta como facturado es texto libre que se rellena a mano. Parsearlo pide ocho expresiones regulares y hay dos tipos de valor que no se pueden resolver: un marcador que no es parseable, y un formato de semana sin año que no se puede asignar a ningún mes. La definición canónica se redujo a "el campo está y no está vacío". Un parser no puede recuperar información que la entrada nunca tuvo.
+
+---
+
+## Qué más hay en la plataforma
+
+Esto son capacidades. Las decisiones están arriba.
+
+**GIS** — modelo PostGIS para las capas de red, vector tiles/MVT, importación de SHP con manejo de CRS/EPSG, mapas con MapLibre/Leaflet, tablas de estado de obra precalculadas, roles de capa y resolvers configurables por cliente, y filtrado por proyecto en el backend.
+
+**Agentes de IA** — agentes de dominio sobre Model Context Protocol, con una capa de tools semánticas en vez de text-to-SQL; las tools envuelven las mismas vistas que leen los informes oficiales. [Write-up aparte](mcp-agents-semantic-tools.md).
+
+**Seguridad** — Spring Security sobre Keycloak/OAuth2, scopes de recurso a nivel de proyecto o ciudad, RLS de PostgreSQL para aislar clientes, CSRF en las mutaciones, CORS restringido en producción, auditoría de sesión y autenticación M2M entre el backend Java y dos servicios Python.
+
+**Operación** — bloqueo optimista para edición concurrente de tablas, jobs programados con seguimiento por ejecución, y paneles de operación sobre el pipeline de importación.
+
+**Documentación fotográfica** — OCR, geocoding y borrado de marcas de agua sobre fotos de campo, donde lo que se entrega al cliente *es* la foto. [Write-up aparte](photodoc-silent-failures.md).
+
+## Arquitectura
 
 ```mermaid
 flowchart TB
-    UI["React Web UI"] --> API["Spring Boot SaaS Backend"]
-    Field["Mobile Field UI<br/>Capacitor + SQLite"] --> API
+    UI["Web React"] --> API["Backend Spring Boot"]
+    Field["App de campo<br/>Capacitor + SQLite"] --> API
     API --> DB[("PostgreSQL / PostGIS")]
-    API --> GIS["GIS Services<br/>imports, tiles, analysis"]
-    API --> IAM["Identity & Access<br/>Keycloak/OAuth2 + scopes"]
-    API --> Agent["FastAPI Agent Platform<br/>MCP client"]
-    API --> Photo["Photo Processing Service"]
-    API --> Ext["External Workorders Integration<br/>mirror, audit, restore"]
+    API --> GIS["Servicios GIS<br/>importación, tiles, análisis"]
+    API --> IAM["Identidad y acceso<br/>Keycloak/OAuth2 + scopes"]
+    API --> Agent["Agentes<br/>FastAPI + MCP"]
+    API --> Photo["Servicio de fotos"]
+    API --> Ext["Partes de trabajo externos<br/>espejo, auditoría, undo"]
 
     GIS --> DB
     Agent --> API
     Photo --> API
 ```
 
-## Tech stack
+## Stack
 
 Java 17 · Spring Boot · Spring Security · Keycloak/OAuth2 · React · PostgreSQL · PostGIS · FastAPI · Python · Model Context Protocol · MapLibre/Leaflet · Capacitor · SQLite · Power BI
