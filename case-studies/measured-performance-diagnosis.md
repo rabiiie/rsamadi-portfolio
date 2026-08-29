@@ -18,7 +18,7 @@ La otra mitad de este mismo problema, la del servidor, está aparte: [capacidad 
 
 **Lo que era.** Esos nodos los retenía la contabilidad del hot-module-replacement, no el código de la aplicación. En una build de producción no aparecían.
 
-**La regla que saqué.** Perfilar la build que se despliega. React en desarrollo va sin minificar, corre comprobaciones extra, y `<StrictMode>` invoca cada render dos veces — solo en desarrollo.
+**La regla que saqué.** Perfilar la build que se despliega. React en desarrollo va sin minificar, corre comprobaciones extra, y `<StrictMode>` invoca cada render dos veces, solo en desarrollo.
 
 ---
 
@@ -39,11 +39,11 @@ Leer el CSS te dice que una regla existe. No te dice a cuántos elementos alcanz
 
 ## 3. Lo que sí encontraron las mediciones
 
-1. **952 transiciones CSS simultáneas.** Una transición de `background-color` de 0,1 s estaba declarada en la **celda** en vez de en la **fila**. Con 40 columnas se multiplica por 40. El "parpadeo" que reportaban era esto, no las animaciones.
+1. **952 transiciones CSS simultáneas.** Una transición de `background-color` de 0,1 s estaba declarada en la **celda** y no en la **fila**. Con 40 columnas se multiplica por 40. El "parpadeo" que reportaban era esto, no las animaciones.
 2. **7.332 invalidaciones de estilo desde un solo selector.** El rayado de filas y el estado hover se aplicaban a las celdas (`tr:hover td:not(.pinnedCell)`), así que pasar el ratón por una fila invalidaba todas sus celdas. Movido a la fila.
-3. **`will-change` sobre elementos cuya propiedad animada no se compone** — una capa de compositor por celda, sin nada que componer.
+3. **`will-change` sobre elementos cuya propiedad animada no se compone**: una capa de compositor por celda, sin nada que componer.
 4. **Un indicador de progreso animando `width`**, que fuerza layout en cada frame. Sustituido por `transform: scaleX()`.
-5. **El getter del contenedor de scroll del virtualizador devolvía el contenedor equivocado**, así que montaba 100 filas en vez de 28.
+5. **El getter del contenedor de scroll del virtualizador devolvía el contenedor equivocado**, así que montaba 100 filas y no 28.
 6. **Tres props reconstruidas en cada render**, que anulaban el `React.memo` de todas las filas. Lo encontré registrando qué prop cambiaba de identidad en cada fila, no leyendo el código.
 7. **El comparador de `React.memo` se dejaba fuera el flag de selección.** La fila solo se repintaba cuando algo ajeno forzaba un render, y de ahí venía el "se pone al día cuando hago scroll" que describían.
 
@@ -92,7 +92,7 @@ La tercera fila parecía una regresión y no lo era. Distinguirlo exigió aislar
 
 **El worker no gana en ningún tamaño.** Ni con 10.000 filas: calcular cuesta 4,810 ms y **solo serializar el payload para mandarlo** cuesta 46,840 ms.
 
-Mandar datos a un worker no quita ese coste del hilo principal: el hilo principal paga el `structuredClone` entero antes de soltar. Un worker sale a cuenta cuando calcular cuesta más que transferir, y una pasada lineal única no puede cumplir eso — clonar recorre la misma estructura y encima reserva memoria para copiarla, mientras que el algoritmo solo lee. Los workers valen para trabajo superlineal, para datos que ya viven dentro del worker, o para payloads que se pueden transferir en vez de clonar: ordenar a lo bestia, joins, parsear ficheros, criptografía.
+Mandar datos a un worker no quita ese coste del hilo principal: el hilo principal paga el `structuredClone` entero antes de soltar. Un worker sale a cuenta cuando calcular cuesta más que transferir, y una pasada lineal única no puede cumplir eso: clonar recorre la misma estructura y encima reserva memoria para copiarla, mientras que el algoritmo solo lee. Los workers valen para trabajo superlineal, para datos que ya viven dentro del worker, o para payloads que se pueden transferir sin clonar: ordenar a lo bestia, joins, parsear ficheros, criptografía.
 
 Para dar escala: un frame son 16,7 ms. 0,014 ms es el 0,08% de uno.
 
@@ -113,7 +113,7 @@ Para dar escala: un frame son 16,7 ms. 0,014 ms es el 0,08% de uno.
 
 Un directorio `qa/` con scripts ejecutables, un banco de microbenchmarks y write-ups de medición fechados, uno por sesión, con las cifras que justificaron cada cambio. El método vive en el ADR que lo decidió; la carpeta guarda solo lo que se ejecuta y lo que produjo.
 
-El mismo tratamiento se aplicó después a una segunda tabla — historial de auditoría, revertir cambios, y los componentes compartidos que salieron de hacerlo dos veces —, y a propósito después de que la primera estuviera correcta. La segunda pasada costó días y no semanas porque los mecanismos ya existían y solo eran nuevas las mediciones.
+El mismo tratamiento se aplicó después a una segunda tabla (historial de auditoría, revertir cambios, y los componentes compartidos que salieron de hacerlo dos veces), y a propósito después de que la primera estuviera correcta. La segunda pasada costó días y no semanas porque los mecanismos ya existían y solo eran nuevas las mediciones.
 
 ---
 

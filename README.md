@@ -20,7 +20,7 @@ Aquí tienes los write-ups de lo que he hecho, sin código propietario, sin dato
 
 - **Backend**: Java 17, Spring Boot, APIs REST y SSE, PostgreSQL. En producción, no en un tutorial.
 - **GIS**: PostGIS, vector tiles, importación de SHP, CRS/EPSG. Pensado para trabajo de campo, no para pintar un mapa bonito.
-- **Agentes de IA sobre MCP**: FastAPI, streaming, historial persistente, y un circuito que convierte el feedback negativo de producción en casos de evaluación — para saber si un cambio de prompt ha mejorado algo o solo lo parece.
+- **Agentes de IA sobre MCP**: FastAPI, streaming, historial persistente, y un circuito que convierte el feedback negativo de producción en casos de evaluación, para saber si un cambio de prompt ha mejorado algo o solo lo parece.
 - **IA aplicada a trabajo real**: OCR de albaranes de proveedor, resúmenes de nómina en lenguaje natural, búsqueda de producto por lenguaje natural.
 - **Seguridad**: Spring Security, Keycloak/OAuth2, RBAC, CSRF/CORS, RLS, scopes por recurso, autenticación M2M entre servicios.
 - **GIS multicliente**: capas configurables, resolvers por cliente, KPIs precalculados, filtrado empujado al backend.

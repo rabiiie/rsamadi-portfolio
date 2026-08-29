@@ -62,13 +62,13 @@ Es la misma disciplina que en la otra plataforma: **el trabajo caro solo se cons
 
 ## Qué más hay
 
-**Ventas e inventario** — TPV con ticket, descuento de stock por lote, FEFO en ventas, inventario y compras. Escaneo de códigos de barras en móvil con ML Kit, con resolución rápida de producto en unitario y en lote. Motor de precios por reglas y gestión de presupuestos de proveedor.
+**Ventas e inventario.** TPV con ticket, descuento de stock por lote, FEFO en ventas, inventario y compras. Escaneo de códigos de barras en móvil con ML Kit, con resolución rápida de producto en unitario y en lote. Motor de precios por reglas y gestión de presupuestos de proveedor.
 
-**Contabilidad y personal** — gastos, declaraciones de IVA, cálculo de nómina con horas extra y guardias, control de presencia con cierre semanal automático, y una página pública con la farmacia de guardia.
+**Contabilidad y personal.** Gastos, declaraciones de IVA, cálculo de nómina con horas extra y guardias, control de presencia con cierre semanal automático, y una página pública con la farmacia de guardia.
 
-**IA aplicada** — además del parseo de albaranes y la búsqueda de producto, resúmenes de nómina en lenguaje natural: los datos de presencia y horas extra se convierten en un texto corto para que el responsable revise, señalando los saldos que necesitan atención en vez de darle una hoja de cálculo.
+**IA aplicada.** Además del parseo de albaranes y la búsqueda de producto, resúmenes de nómina en lenguaje natural: los datos de presencia y horas extra se convierten en un texto corto para que el responsable revise, señalando los saldos que necesitan atención, y no dándole una hoja de cálculo.
 
-**Tests** — 14 clases, incluidas pruebas de integración contra una base de datos real en contenedor. Cubren nómina, cálculo de saldos, agregación de horas, vacaciones, y las APIs de producto, proveedor y contabilidad.
+**Tests.** 14 clases, incluidas pruebas de integración contra una base de datos real en contenedor. Cubren nómina, cálculo de saldos, agregación de horas, vacaciones, y las APIs de producto, proveedor y contabilidad.
 
 ## Arquitectura
 

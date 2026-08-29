@@ -12,7 +12,7 @@ La otra mitad del mismo problema, la del navegador, está aparte: [rendimiento d
 
 ## 1. El instrumento descartaba mis escenarios en silencio
 
-**El síntoma.** Las primeras ejecuciones daban cifras estupendas. La salida nombraba un escenario llamado `default`, que el script no define. Los escenarios del script mezclan gestos reales — listar, filtrar, editar, exportar, abrir historial — en las proporciones de producción.
+**El síntoma.** Las primeras ejecuciones daban cifras estupendas. La salida nombraba un escenario llamado `default`, que el script no define. Los escenarios del script mezclan gestos reales (listar, filtrar, editar, exportar, abrir historial) en las proporciones de producción.
 
 **La causa.** `K6_VUS`, `K6_DURATION` y `K6_ITERATIONS` **son opciones propias de k6**, también cuando las pasas como `-e K6_VUS=300`, que es exactamente la sintaxis de pasarle una variable a tu script. k6 se las queda, descarta todos los escenarios que el script declara y ejecuta uno plano por defecto. La mezcla de gestos no se ejecutó nunca.
 
@@ -48,7 +48,7 @@ Lo tentador es agrandar el pool, porque es cambiar una línea. Hice la versión 
 
 **El resultado.** El pool aportaba algo, y era real. La CPU dominaba. Cuatro vCPU era el techo y ninguna cantidad de tuneo del pool lo mueve.
 
-Es una conclusión aburrida y es de las útiles: le dijo al negocio que comprara núcleos en vez de pagarme por ajustar unos parámetros que no eran la restricción.
+Es una conclusión aburrida y es de las útiles: le dijo al negocio que comprara núcleos y no que me pagara por ajustar unos parámetros que no eran la restricción.
 
 ---
 
@@ -74,7 +74,7 @@ Dos decisiones de implementación, las dos con una alternativa tentadora y equiv
 - **Un job programado, no un trigger.** Mantener el resumen desde el trigger de auditoría le cobraría el coste a cada guardado, y el guardado acababa de bajar de 730 ms precisamente por quitarle trabajo. El camino de escritura no sabe que el resumen existe.
 - **Recalcular dos días enteros, sin marca de agua por `id`.** Una secuencia no garantiza el orden de commit: la transacción que tiene el id 100 puede confirmar antes que la del 99, y una marca de agua sobre `id` se saltaría esa fila para siempre. Recalcular por día es idempotente: lo que llegue tarde entra en la siguiente pasada.
 
-**También:** paginación por keyset en vez de `OFFSET`, e índices GIN de trigramas para las búsquedas de texto que estaban haciendo scan.
+**También:** paginación por keyset y no por `OFFSET`, e índices GIN de trigramas para las búsquedas de texto que estaban haciendo scan.
 
 ---
 
@@ -109,7 +109,7 @@ Execution Time:  0.560 ms
 
 ## 7. Un fallo que introduje yo en este trabajo
 
-Añadir la IP del cliente al contexto de auditoría parecía limpio. Pero `current_setting('x', true)` devuelve una cadena vacía, no NULL, en cuanto se ha fijado una vez en la sesión. Sobre conexiones de un pool, la cadena de `COALESCE` guardaba `''` para siempre. Lo cazó un test que escribí para ese mismo cambio, antes de publicarlo — que es la única razón de que sea una nota al pie y no un incidente de calidad de datos.
+Añadir la IP del cliente al contexto de auditoría parecía limpio. Pero `current_setting('x', true)` devuelve una cadena vacía, no NULL, en cuanto se ha fijado una vez en la sesión. Sobre conexiones de un pool, la cadena de `COALESCE` guardaba `''` para siempre. Lo cazó un test que escribí para ese mismo cambio, antes de publicarlo, y por eso es una nota al pie y no un incidente de calidad de datos.
 
 Lo generalizable: **en una conexión de pool, el estado de sesión no es estado fresco.**
 

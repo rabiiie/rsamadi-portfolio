@@ -16,7 +16,7 @@ Aquí lo que se entrega **es la foto**. Una coordenada con 140 km de error y una
 
 ## 1. El OCR perdía las dos últimas líneas del rótulo
 
-**El problema.** En fotos de 3060×4080, `DetectDocumentText` devolvía las líneas de arriba — empresa, pueblo, nodo — y se dejaba sistemáticamente las dos últimas: coordenadas y dirección. Justo las dos que hacían falta. Lectura sobre una muestra de 27 fotos: 1 de 27.
+**El problema.** En fotos de 3060×4080, `DetectDocumentText` devolvía las líneas de arriba (empresa, pueblo, nodo) y se dejaba sistemáticamente las dos últimas: coordenadas y dirección. Justo las dos que hacían falta. Lectura sobre una muestra de 27 fotos: 1 de 27.
 
 **La causa.** Resolución relativa, no calidad del motor. A escala de foto completa esas líneas ocupan pocos píxeles.
 
@@ -28,7 +28,7 @@ Y cuatro cosas que salieron midiendo, mientras lo implementaba:
 
 **El recorte necesita su propio margen**, 60 px. Un glifo que toca el borde de la imagen se corta: `50.01774` llegaba como `0.01774`, que ya no es una latitud europea, así que la foto se descartaba por ilegible. Una línea que no parsea se ve en el log; una línea que parsea a otro número con buena pinta, no.
 
-**Se mandan las dos mitades de la banda.** El rótulo va pegado a un margen, y a cuál depende de la app de cámara. Deducir el lado por el centro de masas de la primera pasada **falla**: el texto impreso en otra parte del encuadre desplaza el centro al lado contrario y el recorte cae al lado del rótulo en vez de encima. Sobre una segunda muestra: 6 de 21 deduciendo el lado, 16 de 21 mandando las dos mitades, 21 de 21 aplicando además el presupuesto de área.
+**Se mandan las dos mitades de la banda.** El rótulo va pegado a un margen, y a cuál depende de la app de cámara. Deducir el lado por el centro de masas de la primera pasada **falla**: el texto impreso en otra parte del encuadre desplaza el centro al lado contrario y el recorte cae al lado del rótulo y no encima. Sobre una segunda muestra: 6 de 21 deduciendo el lado, 16 de 21 mandando las dos mitades, 21 de 21 aplicando además el presupuesto de área.
 
 **En la fusión gana la lectura más larga, no la última.** El recorte derecho solo alcanza la cola de los renglones del rótulo izquierdo, y su `748` truncado estaba pisando el `50.00748` completo del otro.
 
@@ -36,7 +36,7 @@ Y cuatro cosas que salieron midiendo, mientras lo implementaba:
 
 **Hasta dónde llega la banda.** La segunda pasada corre también sobre los bloques, no solo sobre el texto plano: sus cajas se traducen a coordenadas de la foto completa y se fusionan con las de la primera. De ellas dependen la localización de la marca de agua y la máscara de borrado.
 
-**Coste.** Dos llamadas de OCR por foto en vez de una: unos 1,20 € por cada 400 fotos en lugar de 0,60 €. El borrado sigue siendo una sola llamada.
+**Coste.** Dos llamadas de OCR por foto y no una: unos 1,20 € por cada 400 fotos en lugar de 0,60 €. El borrado sigue siendo una sola llamada.
 
 ---
 
@@ -55,7 +55,7 @@ Las cuatro pasan el filtro de "esto cae plausiblemente en Europa". Una guarda po
 
 **Por qué importa.** Esa coordenada se escribe en el EXIF de la foto y de ahí pasa al informe del cliente. Una dirección mal tecleada acaba documentada como ubicación real.
 
-**El arreglo.** El error de diseño era pedirle al servicio una posición, cuando además devuelve un **tipo de lugar**, que es el servicio diciéndote cuánto de tu consulta ha casado de verdad. Ahora se conserva y se traduce a una precisión explícita — portal, calle o pueblo — que llega hasta la pantalla del operador. La posición sola no se acepta nunca. La guarda por distancia se mantiene: en un pueblo descartó 3 de 17 carpetas.
+**El arreglo.** El error de diseño era pedirle al servicio una posición, cuando además devuelve un **tipo de lugar**, que es el servicio diciéndote cuánto de tu consulta ha casado de verdad. Ahora se conserva y se traduce a una precisión explícita (portal, calle o pueblo) que llega hasta la pantalla del operador. La posición sola no se acepta nunca. La guarda por distancia se mantiene: en un pueblo descartó 3 de 17 carpetas.
 
 ---
 
@@ -63,7 +63,7 @@ Las cuatro pasan el filtro de "esto cae plausiblemente en Europa". Una guarda po
 
 **El problema.** Las fotos sin coordenadas utilizables caen en una carpeta llamada `sin_coordenadas`. Al llevar un diálogo de escritorio al navegador era cómodo convertir una pregunta por foto en una sola respuesta por carpeta.
 
-**Por qué descarté ese camino.** Comprobado contra datos reales: una de esas carpetas tenía fotos de tres calles distintas. La dirección está en el nombre de cada fichero, con el código de nodo como sufijo, no en el nombre de la carpeta — que es literalmente `sin_coordenadas`. Colapsar el diálogo habría sellado fotos de portales diferentes con una misma coordenada, sin dar ningún error.
+**Por qué descarté ese camino.** Comprobado contra datos reales: una de esas carpetas tenía fotos de tres calles distintas. La dirección está en el nombre de cada fichero, con el código de nodo como sufijo, no en el nombre de la carpeta, que es literalmente `sin_coordenadas`. Colapsar el diálogo habría sellado fotos de portales diferentes con una misma coordenada, sin dar ningún error.
 
 **El arreglo.** Todo dato que se le pide al operador se modela por foto. Lo que no venga en la respuesta se salta, igual que dejar un campo en blanco en el diálogo original.
 
@@ -87,7 +87,7 @@ Un estado sin números detrás es peor que ningún estado, porque cierra la inve
 
 Cinco caras, un solo fallo. Y cada cara se había mirado como si fuera un bug propio.
 
-**El arreglo.** Un único dueño: el servicio que hace el trabajo escribe su estado y una línea de log numerada por evento; el otro servicio lee. Se retiró el sondeo entre servicios y el relay de eventos — el navegador pide las líneas posteriores a la última que tiene. De regalo, el log sobrevive a cerrar la pestaña, que era otra pérdida silenciosa que nadie había apuntado como bug.
+**El arreglo.** Un único dueño: el servicio que hace el trabajo escribe su estado y una línea de log numerada por evento; el otro servicio lee. Se retiró el sondeo entre servicios y el relay de eventos: el navegador pide las líneas posteriores a la última que tiene. De regalo, el log sobrevive a cerrar la pestaña, que era otra pérdida silenciosa que nadie había apuntado como bug.
 
 ---
 
@@ -108,9 +108,9 @@ Cinco caras, un solo fallo. Y cada cara se había mirado como si fuera un bug pr
 
 ## 6. La decisión que no se arregla con ingeniería
 
-**La restricción.** Borrar el rótulo es la función que más le importa al negocio, y el modelo que lo hace solo existe en regiones de Estados Unidos. El anterior, alojado en Europa, está en fin de vida y cerrado a clientes nuevos — elegirlo habría repetido un fallo que ya está en producción, que es montar un pipeline sobre un modelo que luego retiran. Y recortar el trozo antes de enviarlo no resuelve nada: el recorte **es** la zona de la dirección.
+**La restricción.** Borrar el rótulo es la función que más le importa al negocio, y el modelo que lo hace solo existe en regiones de Estados Unidos. El anterior, alojado en Europa, está en fin de vida y cerrado a clientes nuevos, y elegirlo habría repetido un fallo que ya está en producción, que es montar un pipeline sobre un modelo que luego retiran. Y recortar el trozo antes de enviarlo no resuelve nada: el recorte **es** la zona de la dirección.
 
-**La decisión.** Se registró como lo que es, una decisión de residencia de datos y no un problema técnico: con el coste dicho — las marcas de agua llevan dirección postal, GPS, altitud y hora —, tomada por quien es dueño de esa decisión, y con una condición escrita para revisarla si el producto se comercializa o se abre a más clientes. El resto de servicios se quedan en la región europea.
+**La decisión.** Se registró como lo que es, una decisión de residencia de datos y no un problema técnico: con el coste dicho (las marcas de agua llevan dirección postal, GPS, altitud y hora), tomada por quien es dueño de esa decisión, y con una condición escrita para revisarla si el producto se comercializa o se abre a más clientes. El resto de servicios se quedan en la región europea.
 
 **Notas de operación.** El modelo se invoca por perfil de inferencia y no aparece en el listado de modelos, solo en el de perfiles. Una única llamada con una máscara que cubre todos los fragmentos sustituye a un bucle de una invocación por caja. Unos 32 s para un PNG de 12 MB.
 
@@ -122,7 +122,7 @@ Cinco caras, un solo fallo. Y cada cara se había mirado como si fuera un bug pr
 
 En un pueblo, 40 fotos pendientes: **18 resueltas**.
 
-Las otras 22 no tienen coordenadas ni en la imagen ni en el EXIF — de las 40, **ninguna** traía GPS en el EXIF. Entre las cuadrillas circulan varias apps de cámara y solo algunas estampan posición: de los cuatro formatos de rótulo que aparecieron, dos llevan coordenadas y dos solo fecha o nombre del técnico. Ninguna cantidad de trabajo en OCR recupera un número que nunca se escribió.
+Las otras 22 no tienen coordenadas ni en la imagen ni en el EXIF: de las 40, **ninguna** traía GPS. Entre las cuadrillas circulan varias apps de cámara y solo algunas estampan posición: de los cuatro formatos de rótulo que aparecieron, dos llevan coordenadas y dos solo fecha o nombre del técnico. Ninguna cantidad de trabajo en OCR recupera un número que nunca se escribió.
 
 Para esas queda el nombre de la carpeta, que **es** una dirección. Geocodificarlo da precisión de portal, no la del punto donde estaba el técnico: es otra medida con las mismas unidades. Está implementado y marcado con un origen distinto, para que no se mezcle jamás con una coordenada leída de la foto. Una llamada de geocoding por carpeta, no por foto.
 

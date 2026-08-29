@@ -6,7 +6,7 @@
 
 Un repositorio políglota: backend Java 17 con Spring Boot, frontend React con Capacitor, dos servicios Python y el esquema completo de PostgreSQL/PostGIS. Un desarrollador. Usuarios en producción.
 
-De dónde partía: tres comprobaciones — escaneo de secretos, auditoría de dependencias de npm y una compilación con tests parcial —, con cobertura desigual según el lenguaje, el esquema de base de datos fuera de todo control automático, y el despliegue hecho a mano.
+De dónde partía: tres comprobaciones (escaneo de secretos, auditoría de dependencias de npm y una compilación con tests parcial), con cobertura desigual según el lenguaje, el esquema de base de datos fuera de todo control automático, y el despliegue hecho a mano.
 
 **La regla que ordena todo lo demás:** un pipeline no se mide por cuántos escáneres ejecuta, sino por si cualquier commit de la rama principal se puede desplegar sin intervención manual. Las comprobaciones cuyo resultado no sería interpretable todavía se aplazan:
 
@@ -65,7 +65,7 @@ El escaneo de secretos tiene la misma forma. Los hallazgos históricos se permit
 **El arreglo, y cómo lo verifiqué.**
 
 - Línea base generada con `pg_dump --schema-only` sobre una copia en contenedor, y después **verificada cargándola en una base de datos vacía**: 351 relaciones, 868 índices de usuario, 1.014 funciones, 424 restricciones, idénticas al origen y sin errores.
-- De 1.264 tablas, **1.002 las crea la aplicación en tiempo de ejecución** — tablas de staging por proyecto, particiones diarias de historial. Esas no son esquema y quedan fuera; incluirlas haría que la línea base creciera sola. Las tablas particionadas padre sí entran.
+- De 1.264 tablas, **1.002 las crea la aplicación en tiempo de ejecución**: tablas de staging por proyecto, particiones diarias de historial. Esas no son esquema y quedan fuera; incluirlas haría que la línea base creciera sola. Las tablas particionadas padre sí entran.
 - Los dos caminos verificados de punta a punta. Base vacía: la migración corre, construye el esquema y la validación de JPA lo acepta contra las entidades. Base existente: se registra una línea base y la migración **no** corre.
 - La imagen del contenedor de test es PostGIS y no `postgres` a secas, porque la línea base crea extensiones espaciales. Los esquemas de esas extensiones se crean con `IF NOT EXISTS` porque vienen con la imagen; los esquemas de la aplicación se crean **sin** esa cláusula, a propósito, para que una colisión de verdad falle a la vista.
 
@@ -83,8 +83,8 @@ Los tests siembran filas suficientes para que el planificador se tome los índic
 
 Dos cosas que conviene saber antes de copiar esto:
 
-- `SET enable_seqscan = off` **encarece** los scans secuenciales, no los prohíbe. Sobre un fixture pequeño, un índice que falta sigue produciendo un scan secuencial en vez de un error, así que la comprobación tiene que leer el plan y el fixture tiene que ser lo bastante grande para ser representativo.
-- Estos tests son lentos y se seleccionan por tag de JUnit, así que la build rápida no los paga. Corren como job propio, y son deterministas para cada pull request — a diferencia de las mediciones de tiempo, que no lo son y van programadas.
+- `SET enable_seqscan = off` **encarece** los scans secuenciales, no los prohíbe. Sobre un fixture pequeño, un índice que falta sigue produciendo un scan secuencial y no un error, así que la comprobación tiene que leer el plan y el fixture tiene que ser lo bastante grande para ser representativo.
+- Estos tests son lentos y se seleccionan por tag de JUnit, así que la build rápida no los paga. Corren como job propio, y son deterministas para cada pull request, a diferencia de las mediciones de tiempo, que no lo son y van programadas.
 
 **El reparto importa: planes en cada pull request, tiempos en una ejecución programada.** Un plan es una propiedad de la query y es estable en cualquier máquina. Un tiempo es una propiedad de la máquina, y comprobarlo en runners compartidos produce exactamente ese rojo intermitente que enseña a la gente a ignorar el pipeline.
 
