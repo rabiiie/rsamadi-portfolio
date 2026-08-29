@@ -1,20 +1,20 @@
-# AppFibra Platform Diagrams
+# Diagramas de la plataforma AppFibra
 
-High-level and sanitized — the point is to show how the pieces fit together, not the implementation.
+De alto nivel y saneados. La idea es enseñar cómo encajan las piezas, no la implementación.
 
-## Platform Architecture
+## Arquitectura de la plataforma
 
 ```mermaid
 flowchart LR
-    Web["Web Office UI"] --> API["Spring Boot SaaS Backend"]
-    Mobile["Mobile Field UI<br/>Capacitor + SQLite"] --> API
+    Web["Web de oficina"] --> API["Backend Spring Boot"]
+    Mobile["App de campo<br/>Capacitor + SQLite"] --> API
     API --> DB[("PostgreSQL / PostGIS")]
-    API --> GIS["GIS services<br/>imports, vector tiles, analysis"]
-    API --> IAM["Keycloak / OAuth2<br/>resource scopes"]
-    API --> Agents["FastAPI AI Agents"]
-    API --> Photos["Photo Processing Service"]
-    API --> BI["Reports, dashboards<br/>scheduled jobs"]
-    API --> Ext["External Workorders API<br/>mirror + audit"]
+    API --> GIS["Servicios GIS<br/>importación, vector tiles, análisis"]
+    API --> IAM["Keycloak / OAuth2<br/>scopes por recurso"]
+    API --> Agents["Agentes de IA<br/>FastAPI"]
+    API --> Photos["Servicio de fotos"]
+    API --> BI["Informes, cuadros de mando<br/>jobs programados"]
+    API --> Ext["API externa de partes<br/>espejo + auditoría"]
 
     GIS --> DB
     BI --> DB
@@ -22,58 +22,58 @@ flowchart LR
     Photos --> API
 ```
 
-## Identity & Resource Authorization
+## Identidad y autorización por recurso
 
 ```mermaid
 sequenceDiagram
-    participant User
+    participant Usuario
     participant IdP as Keycloak/OAuth2
-    participant API as Spring Boot API
-    participant Guard as Resource Guard
+    participant API as API Spring Boot
+    participant Guard as Guard de recurso
     participant DB as PostgreSQL/PostGIS
 
-    User->>IdP: Authenticate
-    IdP-->>User: JWT with roles/modules
-    User->>API: Request data/export/dashboard
-    API->>API: Validate issuer, signature, audience
-    API->>Guard: Check client/module/resource scope
-    Guard->>DB: Query only allowed projects/cities
-    DB-->>API: Filtered result
-    API-->>User: Authorized response
+    Usuario->>IdP: Autenticarse
+    IdP-->>Usuario: JWT con roles y módulos
+    Usuario->>API: Pide datos, export o cuadro de mando
+    API->>API: Valida emisor, firma y audiencia
+    API->>Guard: Comprueba cliente, módulo y scope
+    Guard->>DB: Consulta solo proyectos/ciudades permitidos
+    DB-->>API: Resultado ya filtrado
+    API-->>Usuario: Respuesta autorizada
 ```
 
-## Multi-Client GIS Pipeline
+## Pipeline GIS multicliente
 
 ```mermaid
 flowchart TB
-    Files["Source files<br/>SHP / GPKG / DXF"] --> Staging["Staging import"]
-    Staging --> Unified["Unified feature storage<br/>client-aware"]
-    Unified --> MVs["Materialized views<br/>tiles + analysis"]
-    MVs --> Resolver["Client-specific resolvers<br/>layer roles + mappings"]
-    Resolver --> Study["Precomputed construction status<br/>study/KPI tables"]
-    Study --> Frontend["Map panels, dashboards<br/>construction comparison"]
+    Files["Ficheros de origen<br/>SHP / GPKG / DXF"] --> Staging["Importación a staging"]
+    Staging --> Unified["Almacén unificado<br/>consciente del cliente"]
+    Unified --> MVs["Vistas materializadas<br/>tiles y análisis"]
+    MVs --> Resolver["Resolvers por cliente<br/>roles de capa y mapeos"]
+    Resolver --> Study["Estado de obra precalculado<br/>tablas de estudio y KPI"]
+    Study --> Frontend["Paneles de mapa, cuadros de mando<br/>comparación de obra"]
 ```
 
-## AI Agent Integration
+## Integración de los agentes de IA
 
 ```mermaid
 flowchart LR
-    UI["User chat / assistant UI"] --> Proxy["Spring Boot proxy"]
-    Proxy --> Agent["FastAPI Agent Platform"]
-    Agent --> Tools["Validated tools<br/>queries + domain actions"]
-    Tools --> Data[("Operational data")]
-    Agent --> Eval["Feedback-to-eval<br/>regression checks"]
-    Agent --> Stream["SSE streaming response"]
+    UI["Chat / asistente"] --> Proxy["Proxy Spring Boot"]
+    Proxy --> Agent["Plataforma de agentes<br/>FastAPI"]
+    Agent --> Tools["Tools validadas<br/>consultas y acciones de dominio"]
+    Tools --> Data[("Datos de operación")]
+    Agent --> Eval["Feedback a evaluación<br/>detección de regresiones"]
+    Agent --> Stream["Respuesta en streaming SSE"]
     Stream --> UI
 ```
 
-## Production Risk Controls
+## Controles de riesgo en producción
 
 ```mermaid
 flowchart TB
-    External["External system"] --> Mirror["Local mirror"]
-    Mirror --> Audit["Append-only audit"]
-    Audit --> Diff["Field-by-field diff"]
-    Diff --> Alerts["Mass-change detection"]
-    Alerts --> Restore["Historical reconstruction<br/>restore export"]
+    External["Sistema externo"] --> Mirror["Espejo local"]
+    Mirror --> Audit["Auditoría solo de altas"]
+    Audit --> Diff["Diff campo a campo"]
+    Diff --> Alerts["Detección de cambios masivos"]
+    Alerts --> Restore["Reconstrucción histórica<br/>export para revertir"]
 ```

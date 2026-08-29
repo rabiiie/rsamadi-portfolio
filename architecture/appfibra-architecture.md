@@ -1,67 +1,67 @@
-# AppFibra Architecture
+# Arquitectura de AppFibra
 
-The map, not the story — for the reasoning behind specific decisions, see the [case studies](../case-studies).
+El mapa, no la historia. El razonamiento detrás de cada decisión concreta está en los [casos](../case-studies).
 
-## Main Components
+## Componentes principales
 
 ```mermaid
 flowchart TB
-    Users["Users"] --> Web["Web Office UI"]
-    Users --> Mobile["Mobile Field UI<br/>offline-first"]
+    Users["Usuarios"] --> Web["Web de oficina"]
+    Users --> Mobile["App de campo<br/>offline-first"]
 
-    Web --> API["Spring Boot Backend"]
+    Web --> API["Backend Spring Boot"]
     Mobile --> API
 
     API --> DB[("PostgreSQL / PostGIS")]
-    API --> GIS["GIS Import & Tile Pipelines"]
-    API --> BI["Reporting / BI / Scheduled Jobs"]
-    API --> Agent["AI Agent Proxy"]
-    API --> Photo["Photo Processing Proxy"]
-    API --> Ext["External Workorders Integration"]
+    API --> GIS["Importación GIS y tiles"]
+    API --> BI["Informes, BI y jobs programados"]
+    API --> Agent["Proxy de agentes de IA"]
+    API --> Photo["Proxy del servicio de fotos"]
+    API --> Ext["Integración de partes externos"]
 
     GIS --> DB
     BI --> DB
 ```
 
-## Key Design Decisions
+## Decisiones de diseño
 
-- GIS-first data model on PostgreSQL/PostGIS, not a relational schema with geometry bolted on afterward.
-- JPA/Hibernate for simple CRUD entities (auth), native SQL/JDBC for GIS and reporting — where an ORM would hide the query plans that actually need tuning.
-- Expensive construction-study numbers are precomputed into batch tables instead of calculated per request — computing them live doesn't hold up at the platform's concurrent-user targets.
-- Mobile field workflows are offline-first: crews work where signal isn't reliable, so writes queue on the device and sync when connectivity comes back.
-- The GIS layer went from one client to three without a rewrite, because layer roles and resolvers are configurable per client instead of hardcoded to one.
-- Java and Python services authenticate to each other with M2M tokens — no shared secrets, no internal endpoint left open on trust.
-- Data mirrored in from the external workorders system is append-only and audited, so a partner changing something shows up as a row, not a silent overwrite.
+- **Modelo de datos GIS de origen**, sobre PostgreSQL/PostGIS. No un esquema relacional al que se le añade geometría después.
+- **JPA/Hibernate para el CRUD sencillo** (autenticación), y **SQL nativo con JDBC para GIS e informes**, donde un ORM esconde justo los planes de ejecución que hay que tunear.
+- **Los números caros de estudio de obra se precalculan** en tablas por lotes en vez de calcularse en cada petición: calcularlos al vuelo no aguanta los objetivos de usuarios concurrentes de la plataforma.
+- **El trabajo de campo es offline-first.** Las cuadrillas trabajan donde la cobertura no es fiable, así que las escrituras se encolan en el dispositivo y se sincronizan cuando vuelve la conexión.
+- **El GIS pasó de un cliente a tres sin reescritura**, porque los roles de capa y los resolvers son configurables por cliente en vez de estar cableados al primero.
+- **Los servicios Java y Python se autentican entre sí con tokens M2M.** Ni secretos compartidos, ni endpoints internos abiertos por confianza.
+- **Lo que llega del sistema externo de partes es solo-altas y auditado**, así que un cambio hecho por un tercero aparece como una fila y no como una sobrescritura silenciosa.
 
-## Security
+## Seguridad
 
-- RBAC scoped per client and module — a role granted in one client's data doesn't leak into another's.
-- Identity federated through Keycloak/OAuth2 instead of a homegrown user table; JWTs carry roles, organizations and modules.
-- Resource scope is checked in the backend before every list, export, audit, dashboard, and mutation — not just hidden in the UI.
-- Row-level security in Postgres backs up the backend checks as a second layer, not a replacement for them.
-- CSRF on every mutation; CORS locked down in production rather than left open for convenience.
-- Session and user actions are audited, so "who did this" has an answer.
-- Backend-to-agent and backend-to-photo-service calls authenticate the same way an external client would have to — internal doesn't mean trusted by default.
+- **RBAC por cliente y por módulo**: un rol concedido sobre los datos de un cliente no se filtra a los de otro.
+- **Identidad federada con Keycloak/OAuth2** en vez de una tabla de usuarios propia. El JWT lleva roles, organizaciones y módulos.
+- **El scope de recurso se comprueba en el backend** antes de cada listado, export, auditoría, cuadro de mando y mutación. No se esconde solo en la interfaz.
+- **Row-level security en Postgres** como segunda capa detrás de las comprobaciones del backend, no como sustituta de ellas.
+- **CSRF en cada mutación**, y CORS cerrado en producción en vez de abierto por comodidad.
+- **La sesión y las acciones de usuario se auditan**, así que "quién hizo esto" tiene respuesta.
+- **Las llamadas del backend al agente y al servicio de fotos se autentican igual** que tendría que hacerlo un cliente externo: que algo sea interno no lo hace de confianza.
 
 ```mermaid
 flowchart LR
-    User["User"] --> IdP["Keycloak / OAuth2"]
-    IdP --> JWT["JWT with roles<br/>organizations + modules"]
-    JWT --> API["Spring Boot Resource Server"]
-    API --> Entitlement["Client / module entitlement"]
-    Entitlement --> Scope["Resource scope guard"]
-    Scope --> Query["Backend-filtered query"]
-    Query --> Data[("Allowed project/city data")]
+    User["Usuario"] --> IdP["Keycloak / OAuth2"]
+    IdP --> JWT["JWT con roles<br/>organizaciones y módulos"]
+    JWT --> API["Resource Server Spring Boot"]
+    API --> Entitlement["Derecho por cliente y módulo"]
+    Entitlement --> Scope["Guard de scope de recurso"]
+    Scope --> Query["Consulta filtrada en el backend"]
+    Query --> Data[("Datos de los proyectos permitidos")]
 ```
 
-## Multi-Client GIS Pipeline
+## Pipeline GIS multicliente
 
 ```mermaid
 flowchart TB
-    Source["Source files<br/>SHP / GPKG / DXF"] --> Import["Import runner<br/>staging tables"]
-    Import --> Unified["Unified GIS tables<br/>client-aware data"]
-    Unified --> Views["Materialized views<br/>latest features + analysis"]
-    Views --> Resolver["Client resolver config<br/>layer roles + KPIs"]
-    Resolver --> Status["Construction status<br/>precomputed study data"]
-    Status --> UI["Tiles, dashboards<br/>and construction bar"]
+    Source["Ficheros de origen<br/>SHP / GPKG / DXF"] --> Import["Runner de importación<br/>tablas de staging"]
+    Import --> Unified["Tablas GIS unificadas<br/>datos por cliente"]
+    Unified --> Views["Vistas materializadas<br/>features actuales y análisis"]
+    Views --> Resolver["Configuración por cliente<br/>roles de capa y KPIs"]
+    Resolver --> Status["Estado de obra<br/>datos de estudio precalculados"]
+    Status --> UI["Tiles, cuadros de mando<br/>y barra de obra"]
 ```

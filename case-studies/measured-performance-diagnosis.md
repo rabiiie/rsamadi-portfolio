@@ -1,127 +1,127 @@
-# Data Grid Performance — Browser-Side Diagnosis
+# Rendimiento de una tabla de datos — diagnóstico en el navegador
 
-> Sanitized: no proprietary code, credentials or client data.
+> Write-up saneado: sin código propietario, sin credenciales y sin datos de cliente.
 
-## Scope
+## De qué va
 
-The follow-up module of the FTTH platform is a set of editable data grids: hundreds of thousands of records, 40+ columns, inline editing, grouping, filtering, sorting, sticky columns, optimistic locking. Current load 50-100 concurrent users; target 500.
+El módulo de seguimiento de la plataforma FTTH es un conjunto de tablas editables: cientos de miles de registros, más de 40 columnas, edición en línea, agrupación, filtros, ordenación, columnas fijas y bloqueo optimista. Hoy 50-100 usuarios concurrentes; el objetivo son 500.
 
-Reported symptoms: hovering and scrolling felt heavy, row selection took a visible moment to paint, and a heap snapshot was suspected of showing a memory leak.
+Lo que reportaban los usuarios: que pasar el ratón y hacer scroll iba pesado, que seleccionar una fila tardaba un momento visible en pintarse, y se sospechaba de una fuga de memoria en una captura de heap.
 
-Server-side capacity and query work for the same grid: [Capacity and Database Performance](capacity-and-database-performance.md).
-
----
-
-## 1. Heap snapshot: no leak
-
-**Report.** Detached nodes visible in a heap snapshot.
-
-**Finding.** The detached nodes were retained by hot-module-replacement bookkeeping, not by application code. They were absent from a production build.
-
-**Rule adopted.** Profile the build that ships. Development React is unminified, runs additional checks, and `<StrictMode>` double-invokes every render — in development only.
+La otra mitad de este mismo problema, la del servidor, está aparte: [capacidad y base de datos](capacity-and-database-performance.md).
 
 ---
 
-## 2. Hypotheses from code reading, and their test results
+## 1. La fuga no era una fuga
 
-Four hypotheses were derived from reading the source. All four were falsified by measurement.
+**Lo que se veía.** Nodos desconectados en una captura de heap.
 
-| Hypothesis | Test | Result |
+**Lo que era.** Esos nodos los retenía la contabilidad del hot-module-replacement, no el código de la aplicación. En una build de producción no aparecían.
+
+**La regla que saqué.** Perfilar la build que se despliega. React en desarrollo va sin minificar, corre comprobaciones extra, y `<StrictMode>` invoca cada render dos veces — solo en desarrollo.
+
+---
+
+## 2. Cuatro hipótesis leyendo el código, y qué dijo medirlas
+
+Saqué cuatro hipótesis leyendo el fuente. Las cuatro resultaron falsas.
+
+| Hipótesis | Cómo la comprobé | Resultado |
 |---|---|---|
-| Blinking status indicators — seven CSS classes declare `animation: … infinite` | `document.getAnimations()` on the live page | 0 running |
-| Expensive `:hover` selectors with four chained `:not()` | DevTools Selector Stats | 13.5 ms of 13,006 ms of style recalculation — 0.1 % |
-| A parent component re-rendering twice per interaction | Build without `<StrictMode>` | Development-only double invoke; absent in production |
-| Virtualizer broken — 100 rows mounted for 18 visible | Row count in the DOM | Profiling target was a different grid than the one modified |
+| Los indicadores de estado parpadean — siete clases CSS declaran `animation: … infinite` | `document.getAnimations()` en la página viva | 0 en ejecución |
+| Selectores `:hover` caros, con cuatro `:not()` encadenados | Selector Stats de DevTools | 13,5 ms de 13.006 ms de recálculo de estilo — el 0,1% |
+| Un componente padre re-renderiza dos veces por interacción | Build sin `<StrictMode>` | Doble invocación solo en desarrollo; en producción no existe |
+| El virtualizador está roto — monta 100 filas para 18 visibles | Contar filas en el DOM | Estaba perfilando una tabla distinta de la que había tocado |
 
-Reading CSS establishes that a rule exists. It does not establish how many elements it matches.
-
----
-
-## 3. Defects found by measurement
-
-1. **952 concurrent CSS transitions.** A 0.1 s `background-color` transition was declared on the cell rather than the row. 40 columns multiply it by 40. This, not the animations, produced the reported blinking.
-2. **7,332 style invalidations from one selector.** Zebra striping and hover state were applied to cells (`tr:hover td:not(.pinnedCell)`), so hovering one row invalidated every cell in it. Moved to the row.
-3. **`will-change` on elements whose animated property was not composited** — one compositor layer per cell with nothing to composite.
-4. **A progress indicator animating `width`**, forcing layout every frame. Replaced with `transform: scaleX()`.
-5. **Virtualizer scroll-element getter returned the wrong container**, mounting 100 rows instead of 28.
-6. **Three props rebuilt on every render**, defeating `React.memo` on every row. Found by logging prop identity changes per row, not by inspection.
-7. **`React.memo` comparator omitted the selection flag.** Selection repainted only when an unrelated render was triggered, which produced the reported "catch up on scroll" behaviour.
-
-Item 7 is a correctness defect located inside a performance optimization. The feature passed manual testing; the user's description — *"it doesn't repaint until I scroll"* — is what separated it from general slowness.
+Leer el CSS te dice que una regla existe. No te dice a cuántos elementos alcanza.
 
 ---
 
-## 4. Results
+## 3. Lo que sí encontraron las mediciones
 
-Isolation: mouse movement only over the grid — no scrolling, clicks or typing — before and after. Profile proportions are reported rather than absolute milliseconds, as proportions hold between runs on a shared machine.
+1. **952 transiciones CSS simultáneas.** Una transición de `background-color` de 0,1 s estaba declarada en la **celda** en vez de en la **fila**. Con 40 columnas se multiplica por 40. El "parpadeo" que reportaban era esto, no las animaciones.
+2. **7.332 invalidaciones de estilo desde un solo selector.** El rayado de filas y el estado hover se aplicaban a las celdas (`tr:hover td:not(.pinnedCell)`), así que pasar el ratón por una fila invalidaba todas sus celdas. Movido a la fila.
+3. **`will-change` sobre elementos cuya propiedad animada no se compone** — una capa de compositor por celda, sin nada que componer.
+4. **Un indicador de progreso animando `width`**, que fuerza layout en cada frame. Sustituido por `transform: scaleX()`.
+5. **El getter del contenedor de scroll del virtualizador devolvía el contenedor equivocado**, así que montaba 100 filas en vez de 28.
+6. **Tres props reconstruidas en cada render**, que anulaban el `React.memo` de todas las filas. Lo encontré registrando qué prop cambiaba de identidad en cada fila, no leyendo el código.
+7. **El comparador de `React.memo` se dejaba fuera el flag de selección.** La fila solo se repintaba cuando algo ajeno forzaba un render, y de ahí venía el "se pone al día cuando hago scroll" que describían.
 
-| Metric | Before | After |
+El número 7 es un fallo de corrección escondido dentro de una optimización de rendimiento. La funcionalidad pasaba las pruebas a mano. Lo que lo separó de una lentitud normal fue la descripción exacta de un usuario: *"no se repinta hasta que hago scroll"*.
+
+---
+
+## 4. Resultados
+
+Experimento aislado: **solo mover el ratón** sobre la tabla, sin scroll, sin clics, sin escribir, antes y después. Doy proporciones del perfil y no milisegundos absolutos, porque las proporciones se mantienen entre ejecuciones en una máquina compartida y los milisegundos no.
+
+| Métrica | Antes | Después |
 |---|---|---|
-| `Recalculate style` (self) | 45.7 % | 16.1 % |
-| Rendering | 52.3 % | 36.2 % |
-| Main-thread occupancy | 92.7 % | 85.3 % |
-| `Event: animationiteration` | 35.0 % | not present |
-| Concurrent animations (peak) | 953 | 1 · 15 · 4 |
+| `Recalculate style` (self) | 45,7 % | 16,1 % |
+| Rendering | 52,3 % | 36,2 % |
+| Ocupación del hilo principal | 92,7 % | 85,3 % |
+| `Event: animationiteration` | 35,0 % | no aparece |
+| Animaciones simultáneas (pico) | 953 | 1 · 15 · 4 |
 
-`Recalculate style` also changed shape: from 7.5 % self / 42.1 % total to 16.1 % self ≈ 16.1 % total. Before, it was downstream of the transitions and the fix belonged upstream; the remaining work is its own.
+`Recalculate style` además cambió de forma: de 7,5 % self / 42,1 % total a 16,1 % self ≈ 16,1 % total. Antes era la víctima de las transiciones y el arreglo estaba aguas arriba; el trabajo que queda ahora es suyo.
 
-DOM mutations per interaction, counted with a `MutationObserver` over the mounted rows:
+Mutaciones del DOM por interacción, contadas con un `MutationObserver` sobre las filas montadas:
 
-| Interaction | Rows touched | Mutations | Assessment |
+| Interacción | Filas tocadas | Mutaciones | Lectura |
 |---|---|---|---|
-| Ticking a row checkbox | 1 | 3 | Minimum possible |
-| Editing a cell, group already active | 2 | 25 | Correct — cell losing focus and cell gaining it |
-| Editing the first cell | 28 | 232 | Legitimate — the double-click activates the group, making every visible row editable |
+| Marcar el check de una fila | 1 | 3 | El mínimo posible |
+| Editar una celda, con el grupo ya activo | 2 | 25 | Correcto: la celda que pierde el foco y la que lo gana |
+| Editar la **primera** celda | 28 | 232 | Legítimo: el doble clic activa el grupo, y todas las filas visibles pasan a editables |
 
-The third row is not a regression. Distinguishing it required isolating the variable: activate the group first, then measure the second cell. Without that step the repaint the feature requires would have been removed as an optimization.
+La tercera fila parecía una regresión y no lo era. Distinguirlo exigió aislar la variable: activar el grupo primero y **después** medir la segunda celda. Sin ese paso habría "optimizado" un repintado que la funcionalidad necesita.
 
 ---
 
-## 5. Web Worker removal
+## 5. Borrar un Web Worker que exigía una decisión mía
 
-**Context.** An internal ADR required computing per-group completeness in a Web Worker to keep it off the main thread. The requirement had never been measured.
+**El contexto.** Un ADR que había escrito yo exigía calcular la completitud por grupo en un Web Worker, para quitar ese trabajo del hilo principal. Nunca se había medido.
 
-**Method.** Bench with the production algorithm, 40 columns, synthetic rows shaped like production rows, medians of 40 samples. Batched, because `performance.now()` is clamped to ~0.1 ms and a single pass returns `0.000 ms`.
+**Cómo lo medí.** Un banco con el algoritmo de producción, 40 columnas, filas sintéticas con la forma de las reales, medianas de 40 muestras. Por lotes, porque `performance.now()` está limitado a ~0,1 ms y medir una sola pasada devuelve `0.000 ms`, que se lee como "gratis".
 
-| Rows | Main thread | `structuredClone` alone | Persistent worker | Worker per change |
+| Filas | Hilo principal | Solo `structuredClone` | Worker persistente | Worker por cambio |
 |---|---|---|---|---|
-| 25 | 0.014 ms | 0.105 ms | 0.300 ms | 5.600 ms (412×) |
-| 100 | 0.034 ms | 0.356 ms | 0.500 ms | 5.700 ms (170×) |
-| 1,000 | 0.356 ms | 3.195 ms | 3.800 ms | 9.700 ms (27×) |
-| 10,000 | 4.810 ms | 46.840 ms | 55.300 ms | 86.900 ms (18×) |
+| 25 | 0,014 ms | 0,105 ms | 0,300 ms | 5,600 ms (412×) |
+| 100 | 0,034 ms | 0,356 ms | 0,500 ms | 5,700 ms (170×) |
+| 1.000 | 0,356 ms | 3,195 ms | 3,800 ms | 9,700 ms (27×) |
+| 10.000 | 4,810 ms | 46,840 ms | 55,300 ms | 86,900 ms (18×) |
 
-**Result.** The worker does not win at any measured size. At 10,000 rows computing costs 4.810 ms and serializing the payload costs 46.840 ms.
+**El worker no gana en ningún tamaño.** Ni con 10.000 filas: calcular cuesta 4,810 ms y **solo serializar el payload para mandarlo** cuesta 46,840 ms.
 
-Transferring data to a worker does not remove the cost from the main thread: the main thread pays the full `structuredClone` before releasing. A worker is profitable when computing exceeds transferring, which a single linear pass cannot satisfy — cloning walks the same structure and additionally allocates to copy it, while the algorithm only reads. Workers apply to superlinear work, to data already resident in the worker, or to payloads eligible for `Transferable` instead of cloning: sorting at scale, joins, file parsing, cryptography.
+Mandar datos a un worker no quita ese coste del hilo principal: el hilo principal paga el `structuredClone` entero antes de soltar. Un worker sale a cuenta cuando calcular cuesta más que transferir, y una pasada lineal única no puede cumplir eso — clonar recorre la misma estructura y encima reserva memoria para copiarla, mientras que el algoritmo solo lee. Los workers valen para trabajo superlineal, para datos que ya viven dentro del worker, o para payloads que se pueden transferir en vez de clonar: ordenar a lo bestia, joins, parsear ficheros, criptografía.
 
-Reference: one frame is 16.7 ms. 0.014 ms is 0.08 % of one.
+Para dar escala: un frame son 16,7 ms. 0,014 ms es el 0,08% de uno.
 
-**Action.** The ADR was amended from *"use a worker"* to *"only if computing exceeds transferring"*, with both figures required before any move to a worker. The worker files were deleted.
-
----
-
-## 6. Instrument errors encountered
-
-- `set scrollTop` at 36 % of the profile was the load-generation script, not the application.
-- Double renders in development were `<StrictMode>`, initially read as a real double render.
-- A 3-second INP measured against the dev server, which does not describe the shipped build.
-- The workload script was edited between an "after" and a "before" run, invalidating that comparison. Re-run with the instrument fixed.
+**Qué hice.** Cambié el ADR de *"usar un worker"* a *"solo si calcular cuesta más que transferir"*, con las dos cifras obligatorias antes de mover nada. Y borré los ficheros del worker.
 
 ---
 
-## 7. Artifacts
+## 6. Errores de instrumento que me encontré
 
-A `qa/` directory holding runnable scripts, a microbenchmark harness, and dated measurement write-ups — one per session, with the figures that justified each change. The method lives in the ADR that decided it; the directory holds only what runs and what it produced.
-
-The same treatment was subsequently applied to a second grid — audit history, revert, and the shared components extracted from doing it twice — sequenced after the first grid was correct. The second pass took days rather than weeks because the mechanisms already existed and only the measurements were new.
+- `set scrollTop` ocupando el 36% del perfil era mi propio script de carga, no la aplicación.
+- Los dobles renders en desarrollo eran `<StrictMode>`, y al principio los tomé por dobles renders de verdad.
+- Un INP de 3 segundos medido contra el servidor de desarrollo, que no dice nada de la build que se despliega.
+- Edité el script de carga entre una ejecución "después" y una "antes", lo que invalidó esa comparación. Repetida con el instrumento quieto.
 
 ---
 
-## Open, by decision
+## 7. Qué quedó montado
 
-- `Commit`, `Hit test` and `Layerize` are now 55 % of the hover profile: composition and paint rather than style calculation. Diminishing returns; not scheduled without a user-reported symptom.
-- A 232 ms INP when opening the cell editor is not React. It is a network round-trip fetching permissions before the cell opens. Different layer, tracked separately.
+Un directorio `qa/` con scripts ejecutables, un banco de microbenchmarks y write-ups de medición fechados, uno por sesión, con las cifras que justificaron cada cambio. El método vive en el ADR que lo decidió; la carpeta guarda solo lo que se ejecuta y lo que produjo.
 
-## Tools
+El mismo tratamiento se aplicó después a una segunda tabla — historial de auditoría, revertir cambios, y los componentes compartidos que salieron de hacerlo dos veces —, y a propósito después de que la primera estuviera correcta. La segunda pasada costó días y no semanas porque los mecanismos ya existían y solo eran nuevas las mediciones.
 
-Chrome DevTools (heap snapshots and comparison view, Performance panel with self-vs-total time, Selector Stats, Live Metrics/INP) · `document.getAnimations()` · `MutationObserver` · React DevTools Profiler · custom workload scripts and microbenchmark harness · ADRs
+---
+
+## Abierto, a propósito
+
+- `Commit`, `Hit test` y `Layerize` son ahora el 55% del perfil de hover: composición y pintado, no cálculo de estilo. Rendimientos decrecientes; no está planificado mientras nadie se queje.
+- Un INP de 232 ms al abrir el editor de celda **no es React**. Es una ida y vuelta de red pidiendo permisos antes de abrir la celda. Otra capa, se sigue aparte.
+
+## Herramientas
+
+Chrome DevTools (capturas de heap y vista de comparación, panel de Performance con self y total, Selector Stats, Live Metrics/INP) · `document.getAnimations()` · `MutationObserver` · React DevTools Profiler · scripts de carga y banco de microbenchmarks propios · ADRs

@@ -1,120 +1,124 @@
-# CI Pipeline — Which Checks Are Allowed to Block
+# Pipeline de CI — qué comprobaciones pueden bloquear
 
-> Sanitized: no proprietary code, credentials or client data.
+> Write-up saneado: sin código propietario, sin credenciales y sin datos de cliente.
 
-## Scope
+## De qué va
 
-One polyglot repository: Java 17 / Spring Boot backend, React + Capacitor frontend, two Python services, and the full PostgreSQL/PostGIS schema. One developer. Production users.
+Un repositorio políglota: backend Java 17 con Spring Boot, frontend React con Capacitor, dos servicios Python y el esquema completo de PostgreSQL/PostGIS. Un desarrollador. Usuarios en producción.
 
-Starting state: three checks — secret scanning, npm dependency audit, and a partial compile-and-test — with coverage uneven by language, the database schema under no automatic control, and delivery performed manually.
+De dónde partía: tres comprobaciones — escaneo de secretos, auditoría de dependencias de npm y una compilación con tests parcial —, con cobertura desigual según el lenguaje, el esquema de base de datos fuera de todo control automático, y el despliegue hecho a mano.
 
-**Governing rule.** A pipeline is assessed by whether any commit on the main branch is deployable without manual intervention, not by the number of scanners it runs. Checks whose result would not be interpretable at the time of adoption are deferred:
+**La regla que ordena todo lo demás:** un pipeline no se mide por cuántos escáneres ejecuta, sino por si cualquier commit de la rama principal se puede desplegar sin intervención manual. Las comprobaciones cuyo resultado no sería interpretable todavía se aplazan:
 
-- Coverage is measured after the Spring context boots in CI. Coverage over a test set that excludes application startup describes a different application.
-- Integration tests follow versioned migrations, because the migrations build the schema the tests need.
-- Style and bug analysis enters with a baseline of the existing code.
+- La cobertura se mide después de que el contexto de Spring arranque en CI. Cobertura calculada sobre un conjunto de tests que excluye el arranque de la aplicación describe otra aplicación.
+- Los tests de integración van después de tener migraciones versionadas, porque son las migraciones las que construyen el esquema que el test necesita.
+- El análisis de estilo y bugs entra con una línea base del código existente, nunca sobre pizarra limpia.
 
 ---
 
-## 1. Blocking policy
+## 1. Qué bloquea y qué no
 
-| Check | Mode | Reasoning |
+| Comprobación | Modo | Por qué |
 |---|---|---|
-| Secret scanning over full history | fails the run | a leaked credential is not a matter of degree |
-| Production dependency audit (npm) | fails the run | small known surface; every finding actionable today |
-| Compile and unit tests | fails the run | — |
-| Spring context boot against a real PostGIS container | fails the run | possible only after the schema was versioned |
-| SAST | findings informative, tool failure fatal | see 1.2 |
-| Java dependency vulnerabilities | informative, scheduled | new advisories appear without code changing |
-| Frontend lint | informative, temporary | 736 pre-existing warnings; hardens once triaged |
+| Escaneo de secretos sobre todo el historial | tumba la ejecución | una credencial filtrada no es cuestión de grado |
+| Auditoría de dependencias de producción (npm) | tumba la ejecución | superficie pequeña y conocida; cada hallazgo es accionable hoy |
+| Compilación y tests unitarios | tumba la ejecución | — |
+| Arranque del contexto de Spring contra un PostGIS real | tumba la ejecución | solo fue posible después de versionar el esquema |
+| SAST | hallazgos informativos, fallo de la herramienta fatal | ver 1.2 |
+| Vulnerabilidades de dependencias Java | informativo, programado | aparecen avisos nuevos sin que el código cambie |
+| Lint del frontend | informativo, temporal | 736 avisos preexistentes; endurece cuando estén triados |
 
-### 1.1 New checks enter informative, with a hardening condition
+### 1.1 Lo nuevo entra en informativo, con una condición para endurecerlo
 
-A check that blocks from day one against a repository with history halts work while its initial findings are triaged, and is subsequently ignored. New controls enter informative and harden when their finding list is empty or justified.
+Una comprobación que bloquea desde el primer día en un repositorio con historia detiene el trabajo mientras se tría su ruido inicial, y la gente aprende a ignorarla. Así que los controles nuevos entran informativos y endurecen cuando su lista de hallazgos está vacía o justificada.
 
-Informative status carries a date or a condition. Without one it is permanent by default.
+El matiz que importa: el estado informativo lleva **una fecha o una condición**. Sin eso es permanente por defecto, y "informativo" se convierte en una excusa para siempre.
 
-Exception: a check that examines only a pull request's diff and not pre-existing code blocks from the start, since it produces no historical noise.
+La excepción: una comprobación que solo mira el diff de un pull request y no el código previo bloquea desde el principio, porque no produce ruido histórico.
 
-### 1.2 Findings informative is not tool informative
+### 1.2 Hallazgos informativos no es lo mismo que herramienta informativa
 
-The SAST job does not carry `continue-on-error`. Findings do not fail it — the scanner is not invoked in error mode. The scan failing to execute does fail it.
+El job de SAST **no** lleva `continue-on-error`. Que encuentre problemas no lo tumba, porque el escáner no se invoca en modo error. Que el escáner **no consiga ejecutarse**, sí.
 
-Under `continue-on-error` both cases are indistinguishable, and a misconfiguration or network failure would persist unnoticed while the pipeline reported that SAST runs. What is attenuated is the result of the analysis, not the health of the tool.
+Con `continue-on-error` los dos casos se ven igual: rojo, e ignorado. Una mala configuración o un fallo de red habrían pasado desapercibidos indefinidamente, y el pipeline habría informado de que pasa SAST mientras no pasaba nada.
 
----
-
-## 2. Expiring exceptions
-
-Dependency findings can be accepted; every acceptance carries an expiry date, past which the build fails again. An exception that no longer matches a live advisory also fails the build, so the list cannot accumulate dead entries.
-
-Admission policy: an exception is only admissible once the affected surface has been verified as unused. If the advisory has a fix, it is applied.
-
-Secret scanning follows the same shape. Historical findings are allowlisted **by commit**, each annotated with the credential type and the date it was revoked, so full-history scanning does not block every run while new findings are still caught. The path allowlist contains only non-project directories — dependencies, build artifacts, IDE files. Source files are never allowlisted: a secret found in source is rotated and removed from the file.
+Lo que se atenúa es **el resultado del análisis**, no **la salud de la herramienta**.
 
 ---
 
-## 3. Schema versioning
+## 2. Excepciones que caducan
 
-**Problem.** The schema was not versioned. Approximately 70 loose `.sql` files in the repository root, applied by hand, with no record of application order, idempotency, or the state of each environment.
+Un hallazgo de dependencias se puede aceptar, pero cada aceptación lleva fecha de caducidad, y pasada esa fecha la build vuelve a fallar. Y una excepción que ya no corresponde a ningún aviso vivo también tumba la build, así que la lista no puede acumular entradas muertas.
 
-**Downstream impact.** The context-boot job was informative because the boot test required a database with the schema already built and there was no automated way to build one — so the boot test was excluded from the test run entirely.
+La política que va con eso: una excepción solo es admisible cuando se ha verificado que la superficie afectada no se usa. Si el aviso tiene arreglo, se arregla. Apagar el fuego, no desactivar la alarma.
 
-**Fix and verification.**
-
-- Baseline generated with `pg_dump --schema-only` over a containerized copy, then verified by loading it into an empty database: 351 relations, 868 user indexes, 1,014 functions, 424 constraints, identical to the source, no errors.
-- Of 1,264 tables, 1,002 are created by the application at runtime (per-project staging tables, daily history partitions) and are excluded — including them would make the baseline grow on its own. Parent partitioned tables are included.
-- Both paths verified end to end. Empty database: the migration runs, builds the schema, and JPA validation accepts it against the entities. Existing database: a baseline is recorded and the migration does not run.
-- The test container image is PostGIS rather than plain `postgres`, since the baseline creates spatial extensions. Those extensions' schemas are created `IF NOT EXISTS` because they ship with the image; application schemas are created without that clause so a real collision fails.
-
-**Migrations are disabled by default.** The application's runtime database user has no DDL permission. Applying migrations is a deployment step with its own credentials, not a side effect of application startup against a shared server.
-
-**Two defects recorded during verification**, unrelated to CI: a partitioned table with no `DEFAULT` partition, and the fact that the first real-environment startup would write a migration-history table.
+El escaneo de secretos tiene la misma forma. Los hallazgos históricos se permiten **por commit**, cada uno anotado con qué credencial era y la fecha en que se revocó, de modo que escanear todo el historial no bloquee cada ejecución mientras sigue cazando lo nuevo. La lista de rutas permitidas contiene solo directorios que no son código del proyecto: dependencias, artefactos de build, ficheros del IDE. Nunca fuentes: un secreto encontrado en el código se rota y se quita del fichero, no se silencia.
 
 ---
 
-## 4. Query plan assertions
+## 3. Los cimientos que había que poner primero
 
-The container built for the boot test also allows CI to assert how queries execute, not only that the application starts.
+**El problema.** El esquema no estaba versionado. Unos setenta ficheros `.sql` sueltos en la raíz del repositorio, aplicados a mano, sin registro en ninguna parte del orden de aplicación, de si eran idempotentes ni del estado de cada entorno.
 
-The plan tests seed enough rows for the planner to use indexes, then assert via `EXPLAIN` that each critical query still uses the index it was designed around. A dropped index fails the pull request instead of surfacing as a production incident.
+**A qué bloqueaba.** El job de arranque del contexto estaba en informativo porque el test necesitaba una base de datos con el esquema ya construido, y no había forma automática de construirla. Así que ese test estaba directamente excluido de la ejecución.
 
-Two implementation notes:
+**El arreglo, y cómo lo verifiqué.**
 
-- `SET enable_seqscan = off` prices sequential scans, it does not forbid them. On a small fixture a missing index still yields a sequential scan rather than an error, so the assertion must read the plan and the fixture must be large enough to be representative.
-- These tests are slow and select by JUnit tag, so the fast build does not run them. They execute as their own job, deterministic enough for every pull request — unlike timing measurements, which are not, and run on a schedule.
+- Línea base generada con `pg_dump --schema-only` sobre una copia en contenedor, y después **verificada cargándola en una base de datos vacía**: 351 relaciones, 868 índices de usuario, 1.014 funciones, 424 restricciones, idénticas al origen y sin errores.
+- De 1.264 tablas, **1.002 las crea la aplicación en tiempo de ejecución** — tablas de staging por proyecto, particiones diarias de historial. Esas no son esquema y quedan fuera; incluirlas haría que la línea base creciera sola. Las tablas particionadas padre sí entran.
+- Los dos caminos verificados de punta a punta. Base vacía: la migración corre, construye el esquema y la validación de JPA lo acepta contra las entidades. Base existente: se registra una línea base y la migración **no** corre.
+- La imagen del contenedor de test es PostGIS y no `postgres` a secas, porque la línea base crea extensiones espaciales. Los esquemas de esas extensiones se crean con `IF NOT EXISTS` porque vienen con la imagen; los esquemas de la aplicación se crean **sin** esa cláusula, a propósito, para que una colisión de verdad falle a la vista.
 
-**Split:** plans per pull request, timings on a schedule. A plan is a property of the query and is stable across machines. A timing is a property of the machine, and asserting it on shared CI runners produces flaky failures.
+**Y una decisión que parece un bug hasta que la lees dos veces:** migrar no es un efecto secundario de arrancar. Las migraciones están desactivadas por defecto porque el usuario de base de datos con el que corre la aplicación no tiene permisos DDL, y no debe tenerlos. Aplicar migraciones es un paso de despliegue con sus propias credenciales, no algo que ocurra cada vez que alguien arranca la aplicación contra un servidor compartido.
+
+**Dos hallazgos que salieron de esa verificación** y no tenían nada que ver con CI: una tabla particionada sin partición `DEFAULT`, y que el primer arranque en un entorno real escribiría una tabla de historial de migraciones. Los dos anotados antes de tocar nada.
 
 ---
 
-## 5. Substitutions forced by repository tier
+## 4. Tests sobre los planes de ejecución
 
-The low-cost phase assumed code scanning, dependency review and branch protection were available. On a private repository all three sit behind the same paid tier. What is lost is not the warning but the block at merge time.
+El contenedor que se montó para el test de arranque sirve además para que CI compruebe **cómo se ejecutan las queries**, no solo que la aplicación levanta.
 
-| Planned | Substitute | What was lost |
+Los tests siembran filas suficientes para que el planificador se tome los índices en serio, y después comprueban con `EXPLAIN` que cada query crítica sigue usando el índice para el que se diseñó. Un índice borrado sin querer deja de ser un incidente de producción descubierto una tarde lenta y pasa a ser un pull request en rojo.
+
+Dos cosas que conviene saber antes de copiar esto:
+
+- `SET enable_seqscan = off` **encarece** los scans secuenciales, no los prohíbe. Sobre un fixture pequeño, un índice que falta sigue produciendo un scan secuencial en vez de un error, así que la comprobación tiene que leer el plan y el fixture tiene que ser lo bastante grande para ser representativo.
+- Estos tests son lentos y se seleccionan por tag de JUnit, así que la build rápida no los paga. Corren como job propio, y son deterministas para cada pull request — a diferencia de las mediciones de tiempo, que no lo son y van programadas.
+
+**El reparto importa: planes en cada pull request, tiempos en una ejecución programada.** Un plan es una propiedad de la query y es estable en cualquier máquina. Un tiempo es una propiedad de la máquina, y comprobarlo en runners compartidos produce exactamente ese rojo intermitente que enseña a la gente a ignorar el pipeline.
+
+---
+
+## 5. Sustituciones forzadas por el plan del repositorio
+
+La fase de bajo coste se escribió dando por hecho que el escaneo de código, la revisión de dependencias y la protección de rama eran gratis. En un repositorio **privado** las tres están detrás del mismo plan de pago. Lo que se pierde no es el aviso: es el bloqueo en el momento del merge.
+
+| Lo planeado | El sustituto | Qué se perdió |
 |---|---|---|
-| GitHub-native code scanning | Semgrep OSS | none material — covers Java and JavaScript, runs on the runner, no GitHub API dependency, metrics disabled |
-| Dependency review | OWASP Dependency-Check | **not equivalent** — scans the whole tree periodically instead of blocking a PR diff. Pre-merge block gone; Maven transitive dependencies gain first coverage |
-| Renovate | Dependabot | grouping quality in a polyglot repo; Dependabot is native, free on private repos, and its per-ecosystem grouping covers six fronts: two Maven modules, npm, two Python services, and the workflow's own actions |
+| Escaneo de código nativo de GitHub | Semgrep OSS | nada relevante — cubre Java y JavaScript, corre en el runner, no depende de la API de GitHub y se invoca con métricas desactivadas |
+| Revisión de dependencias | OWASP Dependency-Check | **no es equivalente** — escanea el árbol entero periódicamente en vez de bloquear el diff de un PR. El bloqueo previo al merge desaparece; a cambio, las dependencias transitivas de Maven tienen cobertura por primera vez |
+| Renovate | Dependabot | agrupa peor en un repositorio políglota; a cambio es nativo, gratis en repos privados, y su agrupación por ecosistema cubre los seis frentes: dos módulos Maven, npm, dos servicios Python y las propias actions del workflow |
 
-Branch protection is recorded as deferred pending a paid plan. Until it exists, "fails the run" means the run goes red, not that a merge is mechanically prevented.
+La protección de rama queda anotada como aplazada a la espera de un plan de pago, no descartada en silencio. Mientras no exista, "tumba la ejecución" significa que la ejecución se pone en rojo, no que el merge esté impedido mecánicamente.
 
----
-
-## 6. Cost control
-
-- **Path filtering.** A frontend-only pull request does not compile Java. Implemented through job outputs and `if` conditions rather than workflow-level path filters: a job skipped by `if` counts as satisfied for branch protection, while one skipped by a path filter leaves it pending indefinitely.
-- **Concurrency with cancel-in-progress on pull requests only.** On the main branch and the scheduled run the job completes, because its result is that branch's history.
-- **The slow scan runs on a schedule.** A full vulnerability-database download takes close to an hour and reports nothing new about a code change. Triggers: push, weekly cron, manual dispatch.
-- **SBOM produced on every build** and retained as an artifact, so a future license policy is a configuration change.
+Escribir **qué se pierde** en cada sustitución vale tanto como hacerla. Si no, dentro de seis meses el pipeline parece que hace algo que no hace.
 
 ---
 
-## Current state
+## 6. Control de coste
 
-Foundations and low-cost controls are green and running. Deferred phases, sequenced by the same adoption rule: frontend tests starting with the authorization resolution logic, lint and dependency auditing for the Python services, coverage, architecture rules enforcing decisions currently held only in prose, automated staging delivery, artifact signing and provenance.
+- **Filtrado por rutas.** Un pull request que solo toca el frontend no compila Java. Implementado con salidas de job y condiciones `if`, y no con filtros de ruta a nivel de workflow: un job saltado por `if` cuenta como satisfecho para la protección de rama, mientras que uno saltado por filtro de ruta la deja esperando indefinidamente. Esa diferencia es fácil de equivocar y cara de depurar.
+- **Concurrencia con cancelación en curso solo en pull requests.** En la rama principal y en la ejecución programada el job termina, porque su resultado *es* el historial de esa rama.
+- **El escaneo lento va programado.** Descargar la base de datos de vulnerabilidades entera lleva casi una hora y no dice nada nuevo sobre un cambio de código. Se dispara en push, semanalmente por cron, y a mano cuando hace falta.
+- **Se genera un SBOM en cada build** y se guarda como artefacto, que es lo que convierte una futura política de licencias en un cambio de configuración y no en un proyecto.
 
-## Tools
+---
+
+## Dónde está hoy
+
+Los cimientos y los controles de bajo coste están en verde y funcionando. Las fases aplazadas, ordenadas por la misma regla: tests de frontend empezando por la lógica que resuelve la autorización, lint y auditoría de dependencias para los servicios Python, cobertura, reglas de arquitectura que hagan cumplir decisiones que hoy solo viven en prosa, entrega automatizada a un entorno de pruebas, y firma y procedencia de artefactos.
+
+## Herramientas
 
 GitHub Actions · gitleaks · Semgrep OSS · OWASP Dependency-Check · CycloneDX SBOM · Dependabot · Testcontainers (PostGIS) · Flyway · JUnit · ESLint · npm audit

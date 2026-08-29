@@ -1,133 +1,133 @@
-# Photo Documentation — OCR, Geocoding and Watermark Removal
+# Documentación fotográfica — OCR, geocoding y borrado de marcas de agua
 
-> Sanitized: no proprietary code, credentials, client names or site locations. Measurements are real; places are generalized.
+> Write-up saneado: sin código propietario, sin credenciales, sin nombres de cliente ni de localidad. Las mediciones son reales; los sitios están generalizados.
 
-## Scope
+## De qué va
 
-Field crews photograph fibre installations. Each photo carries a stamped label — company, town, node, coordinates, address. The pipeline reads the label, verifies the location, writes it into the photo's EXIF, erases the stamp, and produces a documented set delivered to the client.
+Las cuadrillas fotografían las instalaciones de fibra. Cada foto lleva un rótulo estampado con empresa, pueblo, nodo, coordenadas y dirección. El pipeline lee ese rótulo, verifica la ubicación, la escribe en el EXIF de la foto, borra el rótulo y produce el conjunto documentado que se entrega al cliente.
 
-- Microservice: Python/FastAPI on an on-premise Windows Server, one module instance per pool thread.
-- Cloud calls: OCR, geocoding, field extraction and inpainting. Database and files remain on premise.
-- Consumers: Spring Boot backend, React UI.
+- **Microservicio**: Python con FastAPI, en un Windows Server on-premise, con una instancia del módulo por hilo del pool.
+- **En la nube**: OCR, geocoding, extracción de campos e inpainting. La base de datos y los ficheros se quedan en casa.
+- **Consumidores**: el backend de Spring Boot y la interfaz React.
 
-The deliverable is the photograph itself. A coordinate that is wrong by 140 km and a correct one are indistinguishable in a file listing, and there is no downstream stage that rejects either. Every validation has to occur at the point of production.
-
----
-
-## 1. OCR losing the last two lines of the label
-
-**Problem.** On 3060×4080 photos, `DetectDocumentText` returned the upper label lines — company, town, node — and consistently omitted the final two: coordinates and address. Read rate on one 27-photo sample: 1/27.
-
-**Root cause.** Relative resolution, not engine accuracy. At full-frame scale those lines occupy too few pixels.
-
-**Fix.** Crop the lower band and submit it as a second call, merging the resulting lines into the full text (`ocr_text` in `aws_ocr.py`). Read rate on the same sample: 27/27.
-
-Four constraints established by measurement while implementing it:
-
-**Crop area governs the read, not the margin.** Measured on one photo: a 2017×1344 crop returned `748`; the same crop at 2017×1018 returned `50.00748`. Above approximately 1.5 Mpx the service downscales the image and resumes clipping the first character of each line. `_regiones_del_rotulo` computes band height against that budget.
-
-**The crop requires its own margin.** `ImageOps.expand`, 60 px. A glyph touching the image border is clipped: `50.01774` arrived as `0.01774`, which fails the European-latitude plausibility check, and the photo was discarded as unreadable. A line that fails to parse is visible in the logs; a line that parses to a different valid-looking number is not.
-
-**Both halves of the band are submitted.** The label is aligned to one margin, and which margin depends on the camera app. Inferring the side from the centre of mass of the first pass fails: printed text elsewhere in the frame (street-box markings) shifts the centre to the opposite side and the crop lands beside the label. Read rate on a second sample: 6/21 with inference, 16/21 with both halves, 21/21 after applying the area budget.
-
-**Merge selects the longest read, not the last.** The right-hand crop captures only the tail of the left-aligned label's lines; its truncated `748` was overwriting the complete `50.00748` from the other crop.
-
-**Related fix.** `extract_coords_and_date` used `DECIMAL_COORD_REGEX.search()` — first match only. OCR concatenates numbers from adjacent lines and forms plausible false pairs (`10.89201, 08.2026`) ahead of the real pair. Changed to `finditer` with a break on the first plausible match.
-
-**Scope of the band.** The second pass runs inside `ocr_with_blocks`, not only over plain text. Its bounding boxes are translated to full-photo coordinates and merged with the first pass. Watermark localization and the erase mask both depend on those boxes.
-
-**Cost.** Two OCR calls per photo instead of one: approximately €1.20 per 400 photos rather than €0.60. Erasing remains one call per photo.
+Aquí lo que se entrega **es la foto**. Una coordenada con 140 km de error y una correcta se ven exactamente igual en un listado de ficheros, y no hay ninguna etapa posterior que rechace ninguna de las dos. O validas en el momento de producirla, o no validas.
 
 ---
 
-## 2. Geocoder returning plausible results for unmatched queries
+## 1. El OCR perdía las dos últimas líneas del rótulo
 
-**Problem.** `geo-places.search_text` always returns a position. Measured against one town's data:
+**El problema.** En fotos de 3060×4080, `DetectDocumentText` devolvía las líneas de arriba — empresa, pueblo, nodo — y se dejaba sistemáticamente las dos últimas: coordenadas y dirección. Justo las dos que hacían falta. Lectura sobre una muestra de 27 fotos: 1 de 27.
 
-| Query | Response | Error |
+**La causa.** Resolución relativa, no calidad del motor. A escala de foto completa esas líneas ocupan pocos píxeles.
+
+**El arreglo.** Recortar la banda inferior y mandarla como una segunda llamada, fundiendo las líneas que devuelve con el texto completo. Sobre la misma muestra: **27 de 27**.
+
+Y cuatro cosas que salieron midiendo, mientras lo implementaba:
+
+**Lo que manda es el área del recorte, no el margen.** Medido sobre una foto: un recorte de 2017×1344 devolvía `748`; el mismo recorte a 2017×1018 devolvía `50.00748`. Por encima de aproximadamente 1,5 Mpx el servicio reduce la imagen y vuelve a comerse el primer carácter de cada renglón. El alto de la banda se calcula ahora contra ese presupuesto.
+
+**El recorte necesita su propio margen**, 60 px. Un glifo que toca el borde de la imagen se corta: `50.01774` llegaba como `0.01774`, que ya no es una latitud europea, así que la foto se descartaba por ilegible. Una línea que no parsea se ve en el log; una línea que parsea a otro número con buena pinta, no.
+
+**Se mandan las dos mitades de la banda.** El rótulo va pegado a un margen, y a cuál depende de la app de cámara. Deducir el lado por el centro de masas de la primera pasada **falla**: el texto impreso en otra parte del encuadre desplaza el centro al lado contrario y el recorte cae al lado del rótulo en vez de encima. Sobre una segunda muestra: 6 de 21 deduciendo el lado, 16 de 21 mandando las dos mitades, 21 de 21 aplicando además el presupuesto de área.
+
+**En la fusión gana la lectura más larga, no la última.** El recorte derecho solo alcanza la cola de los renglones del rótulo izquierdo, y su `748` truncado estaba pisando el `50.00748` completo del otro.
+
+**Un arreglo relacionado.** La función que extrae coordenadas usaba `.search()`, o sea solo la primera coincidencia. El OCR concatena números de renglones contiguos y forma pares falsos con buena pinta (`10.89201, 08.2026`) antes del par bueno. Cambiado a iterar y parar en la primera coincidencia **plausible**, que es otra cosa distinta de la primera coincidencia.
+
+**Hasta dónde llega la banda.** La segunda pasada corre también sobre los bloques, no solo sobre el texto plano: sus cajas se traducen a coordenadas de la foto completa y se fusionan con las de la primera. De ellas dependen la localización de la marca de agua y la máscara de borrado.
+
+**Coste.** Dos llamadas de OCR por foto en vez de una: unos 1,20 € por cada 400 fotos en lugar de 0,60 €. El borrado sigue siendo una sola llamada.
+
+---
+
+## 2. El geocoder nunca dice que no ha encontrado la dirección
+
+**El problema.** El servicio de búsqueda siempre devuelve una posición. Medido contra los datos de un pueblo:
+
+| Consulta | Qué devuelve | Error |
 |---|---|---|
-| Real address | `PlaceType=PointAddress` | correct doorway |
-| Real street, invented house number | `PlaceType=Street` | street midpoint, ~860 m |
-| Invented street | `PlaceType=Locality` | town centre |
-| No match | `BiasPosition` | country centre, ~140 km |
+| Dirección real | `PlaceType=PointAddress` | el portal correcto |
+| Calle real, número inventado | `PlaceType=Street` | punto medio de la calle, ~860 m |
+| Calle inventada | `PlaceType=Locality` | centro del pueblo |
+| Sin coincidencia | la posición de sesgo | centro del país, ~140 km |
 
-All four pass `is_plausible_lat_lon_for_europe`. A distance guard against the geocoded town centre rejects the bottom two only: a non-existent house number resolves inside the town radius and is accepted.
+Las cuatro pasan el filtro de "esto cae plausiblemente en Europa". Una guarda por distancia contra el centro del pueblo caza las dos últimas y **falla justo en la que más duele**: un número de portal que no existe cae cómodamente dentro del radio del pueblo y se acepta como bueno.
 
-**Impact.** The coordinate is written to the photo's EXIF and from there into the client's report.
+**Por qué importa.** Esa coordenada se escribe en el EXIF de la foto y de ahí pasa al informe del cliente. Una dirección mal tecleada acaba documentada como ubicación real.
 
-**Fix.** `aws_geocode.geocode_detail()` preserves `PlaceType` and `Address.Label` and translates them into an explicit precision value — doorway, street or town — surfaced through to the operator UI. The position alone is never accepted. The town-distance guard is retained; in one town it rejected 3 of 17 folders.
-
----
-
-## 3. Per-photo rather than per-folder operator input
-
-**Problem.** Photos without usable coordinates are placed in a folder named `sin_coordenadas`. Porting an operator dialog from a desktop tool to the browser made it convenient to collapse a per-photo question into one answer per folder.
-
-**Root cause of the rejected approach.** Verified against real data: one such folder contained photos from three different streets. The address is in each file name with the node code as a suffix (`<street> <number> - <node>.jpeg`), not in the folder name, which is literally `sin_coordenadas`. Collapsing the dialog would stamp photos of different doorways with one coordinate and raise no error.
-
-**Fix.** Operator input is modelled per photo (`coords_by_file`: path → value). Entries absent from the response are skipped, matching the behaviour of leaving a field blank in the original dialog.
+**El arreglo.** El error de diseño era pedirle al servicio una posición, cuando además devuelve un **tipo de lugar**, que es el servicio diciéndote cuánto de tu consulta ha casado de verdad. Ahora se conserva y se traduce a una precisión explícita — portal, calle o pueblo — que llega hasta la pantalla del operador. La posición sola no se acepta nunca. La guarda por distancia se mantiene: en un pueblo descartó 3 de 17 carpetas.
 
 ---
 
-## 4. Job state and batch reporting
+## 3. La unidad es la foto, no la carpeta
 
-**Problem A — batch results.** The service layer returned a fixed `"ocr_process completado"` string and `process_folder` did not return its `stats`. A run could complete, report success and have written zero coordinates, indistinguishable from a run that corrected every photo.
+**El problema.** Las fotos sin coordenadas utilizables caen en una carpeta llamada `sin_coordenadas`. Al llevar un diálogo de escritorio al navegador era cómodo convertir una pregunta por foto en una sola respuesta por carpeta.
 
-**Fix.** Batch operations return counts: examined, corrected, still pending and the reason. The UI renders one row per photo from `invoicing.photo_documentation`, linked to the job by `job_id` (migration V15).
+**Por qué descarté ese camino.** Comprobado contra datos reales: una de esas carpetas tenía fotos de tres calles distintas. La dirección está en el nombre de cada fichero, con el código de nodo como sufijo, no en el nombre de la carpeta — que es literalmente `sin_coordenadas`. Colapsar el diálogo habría sellado fotos de portales diferentes con una misma coordenada, sin dar ningún error.
 
-**Problem B — state duplication.** Job state existed in three locations: microservice memory, the `photo_jobs` table, and the browser, synchronized by two loops. Five visible defects originated from that single duplication:
-
-- `Running` displayed alongside `completed`
-- correct jobs marked `Failed` on microservice restart ("Job perdido")
-- progress fixed at 0 %
-- stale `error_message` persisting on the row
-- 401 on the SSE stream
-
-**Fix (migration V16).** Single owner: the microservice writes `invoicing.photo_job_state` (status, progress, error) and `invoicing.photo_job_log` (one numbered row per line). Spring reads. `photo_jobs` retains context only — who launched it, which folder, which client/project/scope.
-
-Removed: the `@Scheduled` Spring→FastAPI poll in `PhotoJobSyncService`, and the `/{jobId}/events` SSE relay. The browser polls `GET /{jobId}/log?desde=N` every 2 s and receives only new lines. The persisted log survives closing the tab.
+**El arreglo.** Todo dato que se le pide al operador se modela por foto. Lo que no venga en la respuesta se salta, igual que dejar un campo en blanco en el diálogo original.
 
 ---
 
-## 5. Authorization
+## 4. Estado del trabajo y resultados de lote
 
-**Problem.** The prior check called `projectService.getProjectById(projectId)`, which belongs to a different product line and performs no check when `projectId` is null. In practice there was no authorization.
+**Problema A: el lote no decía nada.** La capa de servicio devolvía una cadena fija de éxito y la función de debajo ni siquiera devolvía sus estadísticas. Una ejecución podía terminar, reportar que fue bien y haber escrito **cero** coordenadas, sin forma de distinguirla de una que las corrigió todas.
 
-**Defect found while rebuilding it.** `public.clients` stores `name` and `code` as separate columns. `assertCanAccessCity` received the display name and compared it against the code literal. The comparison never matched, so the check fell through, leaving a `WARN` in the log and no enforcement.
+Un estado sin números detrás es peor que ningún estado, porque cierra la investigación.
 
-**Fix.** The client code is resolved server-side via `ClientDAO.findCodeById(clientId)` and passed in `JobContext.clientCode`. It is never accepted from the browser.
+**El arreglo.** Las operaciones de lote devuelven cuentas reales: cuántas miró, cuántas corrigió, cuántas siguen pendientes y por qué. Y la interfaz enseña una fila por foto, no un resumen.
 
-**Model.** Module `<CLIENT>_PHOTODOC`, `RESOURCE_TYPE = "city"`, role `PHOTO_DOC`. The city travels in `JobContext.project_name` — the context has no `city` field, and for this client the project name is the city. Ownership is by scope, not `created_by`: any user holding the city can resume a review another user left incomplete. Access to all cities is granted by a `client`-mode scope, not by leaving the user without scopes.
+**Problema B: el estado vivía en tres sitios.** La memoria del microservicio, una tabla de trabajos y el navegador, con dos bucles sincronizándolos. De esa única duplicación salían cinco fallos distintos:
 
-**Two related decisions:**
+- `Running` mostrado junto a `completed`
+- trabajos correctos marcados como `Failed` al reiniciar el microservicio
+- progreso clavado en 0 %
+- un mensaje de error viejo pegado a la fila
+- un 401 en el stream de eventos
 
-- **File root failed open.** Without `app.photojobs.fs.allowed-roots`, the path logic fell back to the entire network share, which holds another product line's files. The policy now lives in `PhotoJobPathPolicy` and fails closed.
-- **Legacy fallback is the permissive direction.** "No scope rows means full access" admits a user with nothing configured, while a user already holding scopes for that client under a different module is correctly refused. The permissive case generates no support ticket.
+Cinco caras, un solo fallo. Y cada cara se había mirado como si fuera un bug propio.
 
----
-
-## 6. Inpainting region and mask
-
-**Constraint.** Watermark removal is the highest-priority function and drives region selection. The current model (`us.stability.stable-image-erase-object-v1:0`) exists only in US regions. The European-hosted predecessor is in Legacy status with a fixed EOL date and closed to new customers; selecting it would repeat a failure already present in production, which is a pipeline built on a subsequently retired model. Cropping the tile before transmission does not mitigate the data-residency question: the crop is the region containing the address.
-
-**Decision.** Recorded as a data-residency decision rather than a technical one, with the tradeoff stated — watermarks contain postal address, GPS, altitude and time — taken by the business owner, and carrying an explicit condition for revisiting it if the product is commercialized or opened to additional clients. Remaining services (OCR, geocoding, field extraction) stay in the EU region.
-
-**Operational notes.** The model is invoked by inference profile (`us.` prefix) and does not appear in `list_foundation_models`, only in `list_inference_profiles`. Response shape: `{seeds, finish_reasons, images}`. One call with a mask covering all fragments replaces a per-bbox invocation loop. Approximately 32 s for a 12 MB PNG.
-
-**Mask defect.** Erasing the label's enclosing rectangle covered 55 % of the tile. With that proportion masked the model lost surrounding context and generated replacement background: in one photo a sandstone wall and a set of steps were returned as plain concrete. Masking individual text lines within the bbox reduces coverage to approximately 34 % and the background is preserved. Line boxes rather than word boxes: the label is right-aligned, and word-level masks left line endings unerased. Verified on a 10-photo validation set: 10/10 clean.
+**El arreglo.** Un único dueño: el servicio que hace el trabajo escribe su estado y una línea de log numerada por evento; el otro servicio lee. Se retiró el sondeo entre servicios y el relay de eventos — el navegador pide las líneas posteriores a la última que tiene. De regalo, el log sobrevive a cerrar la pestaña, que era otra pérdida silenciosa que nadie había apuntado como bug.
 
 ---
 
-## Measured ceiling
+## 5. La autorización que avisaba en vez de denegar
 
-One town, 40 pending photos: 18 resolved.
+**El problema.** La comprobación anterior llamaba a una consulta de proyecto que pertenece a otra línea de producto, y que además no comprueba nada cuando el identificador llega nulo. En la práctica no había autorización.
 
-The remaining 22 have no coordinates in the image and no GPS in EXIF — 0 of 40 carried EXIF GPS. Four camera-app label formats were encountered; two stamp coordinates, two stamp only a date or a technician name. OCR cannot recover a value that was never written.
+**El fallo que apareció rehaciéndola.** La tabla de clientes guarda el nombre visible y el código en columnas distintas. La comprobación recibía el **nombre** y lo comparaba contra el **código**. Nunca casaban, así que se caía por el camino de en medio y lo único que quedaba era un `WARN` en el log. Tests en verde, funcionalidad operativa, control ninguno.
 
-For those, the folder name is an address. Geocoding it yields doorway precision rather than the position from which the photo was taken. Implemented and tagged with a distinct `invoicing.gps_source` value, `FOLDER` (migration V10), so it is never merged with a coordinate read from the photo. One geocoding call per folder, not per photo.
+**El arreglo.** El código de cliente se resuelve en el servidor a partir del identificador, y nunca se acepta del navegador.
 
-Two further format defects fixed in the same pass: `DEC_HEMI_REGEX` failed on one app's `49.877432°N` format due to the degree symbol between number and hemisphere letter and a separator class excluding the decimal point; `DATE_REGEX` accepted only `dd.mm.yyyy`, now also `dd/mm/yyyy`, with `apply_gps_and_datetime` splitting on `[./]`.
+**Dos decisiones relacionadas:**
 
-## Tech stack
+- **La raíz de ficheros fallaba abierta.** Sin una propiedad explícita de rutas permitidas, la lógica caía al recurso de red entero, incluidos los ficheros de otra línea de producto. Ahora esa política vive en un solo sitio y falla cerrada.
+- **El fallback antiguo es la dirección peligrosa.** "Sin filas de scope, acceso completo" deja entrar a quien no tiene nada configurado, mientras que a quien ya tiene scopes de ese cliente por otro módulo lo deja fuera correctamente. El caso permisivo es el que no genera ticket, y por eso es el que sobrevive sin que nadie lo vea.
 
-Amazon Textract · Amazon Location Service · Amazon Bedrock (Stability image erase) · Python · FastAPI · Pillow · PostgreSQL · Spring Boot · React · EXIF/GPS metadata
+---
+
+## 6. La decisión que no se arregla con ingeniería
+
+**La restricción.** Borrar el rótulo es la función que más le importa al negocio, y el modelo que lo hace solo existe en regiones de Estados Unidos. El anterior, alojado en Europa, está en fin de vida y cerrado a clientes nuevos — elegirlo habría repetido un fallo que ya está en producción, que es montar un pipeline sobre un modelo que luego retiran. Y recortar el trozo antes de enviarlo no resuelve nada: el recorte **es** la zona de la dirección.
+
+**La decisión.** Se registró como lo que es, una decisión de residencia de datos y no un problema técnico: con el coste dicho — las marcas de agua llevan dirección postal, GPS, altitud y hora —, tomada por quien es dueño de esa decisión, y con una condición escrita para revisarla si el producto se comercializa o se abre a más clientes. El resto de servicios se quedan en la región europea.
+
+**Notas de operación.** El modelo se invoca por perfil de inferencia y no aparece en el listado de modelos, solo en el de perfiles. Una única llamada con una máscara que cubre todos los fragmentos sustituye a un bucle de una invocación por caja. Unos 32 s para un PNG de 12 MB.
+
+**El fallo de la máscara.** Borrar el rectángulo que envuelve el rótulo tapaba el 55% del recorte. Con esa proporción cubierta el modelo se quedaba sin contexto alrededor y **se inventaba el fondo**: en una foto, un muro de arenisca y unos peldaños volvieron convertidos en hormigón liso. Enmascarando los renglones de texto por separado baja al 34% y el fondo real sobrevive. Cajas de línea y no de palabra, porque el rótulo va alineado a la derecha y con palabras sueltas quedaban sin tapar los finales de renglón. Verificado sobre 10 fotos: 10 limpias.
+
+---
+
+## Hasta dónde llega, dicho en voz alta
+
+En un pueblo, 40 fotos pendientes: **18 resueltas**.
+
+Las otras 22 no tienen coordenadas ni en la imagen ni en el EXIF — de las 40, **ninguna** traía GPS en el EXIF. Entre las cuadrillas circulan varias apps de cámara y solo algunas estampan posición: de los cuatro formatos de rótulo que aparecieron, dos llevan coordenadas y dos solo fecha o nombre del técnico. Ninguna cantidad de trabajo en OCR recupera un número que nunca se escribió.
+
+Para esas queda el nombre de la carpeta, que **es** una dirección. Geocodificarlo da precisión de portal, no la del punto donde estaba el técnico: es otra medida con las mismas unidades. Está implementado y marcado con un origen distinto, para que no se mezcle jamás con una coordenada leída de la foto. Una llamada de geocoding por carpeta, no por foto.
+
+Dos fallos de formato más que cayeron en la misma pasada: la expresión regular de coordenadas con hemisferio no tragaba el formato de una de las apps por el símbolo de grado entre número y letra, y la de fechas solo aceptaba un separador.
+
+## Stack
+
+Amazon Textract · Amazon Location Service · Amazon Bedrock · Python · FastAPI · Pillow · PostgreSQL · Spring Boot · React · metadatos EXIF/GPS

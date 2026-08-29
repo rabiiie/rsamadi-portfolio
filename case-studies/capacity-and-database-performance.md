@@ -1,116 +1,118 @@
-# Capacity and Database Performance — Load Testing and Query Work
+# Capacidad y base de datos — pruebas de carga y trabajo de queries
 
-> Sanitized: no proprietary code, credentials or client data.
+> Write-up saneado: sin código propietario, sin credenciales y sin datos de cliente.
 
-## Scope
+## De qué va
 
-Multi-client FTTH platform, one reference table of a few hundred thousand rows and forty columns. Open question from the business with no measured answer: how many users can work concurrently, and what machine is required. The production machine had four vCPU, not sized against any measurement.
+Plataforma FTTH multicliente, con una tabla de referencia de unos cientos de miles de filas y cuarenta columnas. Y una pregunta del negocio que no tenía respuesta medida: cuánta gente puede trabajar a la vez, y qué máquina hace falta. La máquina de producción tenía cuatro vCPU, que es lo que le habían dado, sin ninguna medición detrás.
 
-Browser-side work on the same grid: [Data Grid Performance](measured-performance-diagnosis.md).
-
----
-
-## 1. Instrument defect: scenarios silently discarded
-
-**Symptom.** Initial load runs reported healthy figures. The output named a scenario `default`, which the script does not define. The script's own scenarios mix real gestures — list, filter, edit, export, open history — in production proportions.
-
-**Root cause.** `K6_VUS`, `K6_DURATION` and `K6_ITERATIONS` are k6's own options, including when passed as `-e K6_VUS=300`, which is the syntax for passing a variable to the script. k6 claims them, discards every scenario the script declares and runs a flat default instead. The gesture mix was never executed.
-
-The first diagnosis attributed this to a stray environment variable on the machine rather than the flag on the command line, and was corrected.
-
-**Fix.**
-
-- Scripts read `LOAD_VUS` / `LOAD_DURATION`, which k6 does not claim.
-- The script asserts that the executing scenario is the expected one and fails with an error naming the likely cause.
+La otra mitad del mismo problema, la del navegador, está aparte: [rendimiento de la tabla](measured-performance-diagnosis.md).
 
 ---
 
-## 2. Saturation point
+## 1. El instrumento descartaba mis escenarios en silencio
 
-Throughput in requests per second is the reported unit; virtual users are the applied pressure, not a result.
+**El síntoma.** Las primeras ejecuciones daban cifras estupendas. La salida nombraba un escenario llamado `default`, que el script no define. Los escenarios del script mezclan gestos reales — listar, filtrar, editar, exportar, abrir historial — en las proporciones de producción.
 
-| Load | Result |
+**La causa.** `K6_VUS`, `K6_DURATION` y `K6_ITERATIONS` **son opciones propias de k6**, también cuando las pasas como `-e K6_VUS=300`, que es exactamente la sintaxis de pasarle una variable a tu script. k6 se las queda, descarta todos los escenarios que el script declara y ejecuta uno plano por defecto. La mezcla de gestos no se ejecutó nunca.
+
+Una medición de la cosa equivocada es peor que no medir, porque viene con un número puesto.
+
+Y el primer diagnóstico que di fue incorrecto: culpé a una variable de entorno perdida en la máquina, cuando era el flag escrito en la línea de comandos. Lo corregí al ver que el flag era el sospechoso obvio.
+
+**El arreglo.**
+
+- Los scripts leen `LOAD_VUS` y `LOAD_DURATION`, que k6 no reclama.
+- El script comprueba que el escenario en ejecución es el esperado y falla con un error que nombra la causa probable. Al siguiente le costará un minuto, no una tarde.
+
+---
+
+## 2. El punto de saturación
+
+Lo que significa algo es el throughput en peticiones por segundo. Los usuarios virtuales son la presión que aplicas, no un resultado.
+
+| Carga | Resultado |
 |---|---|
-| 150 concurrent | All thresholds green except export p95 (539 ms) |
-| 300 concurrent | All six thresholds crossed, 187 req/s |
+| 150 concurrentes | Todos los umbrales en verde salvo el p95 del export (539 ms) |
+| 300 concurrentes | Los seis umbrales cruzados, 187 req/s |
 
-The knee sits between the two: past it, throughput flattens while latency climbs.
+El codo está entre los dos: a partir de ahí el throughput se aplana mientras la latencia sube.
 
-All gestures degraded together. A single slow endpoint indicates one query; uniform degradation indicates a shared resource. Two candidates: the connection pool or the CPU.
-
----
-
-## 3. Isolating pool from CPU
-
-**Method.** Change the pool size, hold everything else constant, re-measure.
-
-**Result.** The pool contribution was real and small. The CPU dominated. Four vCPU was the ceiling and pool tuning does not move it.
-
-**Action.** Machine sized on cores rather than connection settings.
+Y degradaron **todos los gestos a la vez**. Un solo endpoint lento apunta a una query; que se degrade todo al mismo tiempo apunta a un recurso compartido. Dos candidatos: el pool de conexiones o la CPU.
 
 ---
 
-## 4. Query costs
+## 3. Separar el pool de la CPU
 
-**Save path: 730 ms → 113 ms.** Per-row work executing on every save. Removed rather than parallelized.
+Lo tentador es agrandar el pool, porque es cambiar una línea. Hice la versión controlada: cambiar el tamaño del pool, no tocar nada más, volver a medir.
 
-**History histogram: 477,000 rows read per request.** The query recomputed, on every request, figures that could no longer change. `EXPLAIN (ANALYZE, BUFFERS)` over the 30-day window:
+**El resultado.** El pool aportaba algo, y era real. La CPU dominaba. Cuatro vCPU era el techo y ninguna cantidad de tuneo del pool lo mueve.
+
+Es una conclusión aburrida y es de las útiles: le dijo al negocio que comprara núcleos en vez de pagarme por ajustar unos parámetros que no eran la restricción.
+
+---
+
+## 4. Lo que estaba haciendo la base de datos
+
+**El guardado: de 730 ms a 113 ms.** Había trabajo por fila ejecutándose en cada guardado. El arreglo fue quitarlo, no paralelizarlo.
+
+**El histograma de historial: 477.000 filas leídas por petición.** Recalculaba en cada petición unas cifras que ya no podían cambiar. `EXPLAIN (ANALYZE, BUFFERS)` sobre la ventana de 30 días:
 
 ```
 Parallel Index Scan using idx_..._timestamp
-  rows=159009 loops=3        <- 477,027 rows read
+  rows=159009 loops=3        <- 477.027 filas leídas
 Workers Launched: 2
 Execution Time: 283 ms
 ```
 
-283 ms in isolation is survivable; the plan shows why it is not. Each request recruited three of the four vCPU. At ten concurrent users the median measured 934 ms. Parallelism that benefits a single user degrades concurrent load.
+283 ms sueltos parecen asumibles. No lo son, y el plan explica por qué: cada petición reclutaba **tres de las cuatro vCPU**. Con diez usuarios concurrentes la mediana se fue a 934 ms. El paralelismo que ayuda a un usuario es justo lo que hunde a diez.
 
-The table is append-only and stamped with the current time, so 29 of the 30 days in the chart are immutable. The query now reads a daily rollup of a few dozen rows.
+La tabla solo recibe altas y siempre se sella con la hora actual, así que de los 30 días del gráfico 29 son inmutables. Ahora lee un resumen diario de unas pocas decenas de filas.
 
-Two implementation decisions:
+Dos decisiones de implementación, las dos con una alternativa tentadora y equivocada:
 
-- **Scheduled job, not a trigger.** Maintaining the rollup from the audit trigger would charge every save for it, and the save had just been reduced from 730 ms by removing per-save work. The write path has no knowledge of the rollup.
-- **Recompute two full days; no `id` watermark.** A sequence does not guarantee commit order — the transaction holding id 100 can commit before the one holding 99, and a high-water mark over `id` would skip that row permanently. Recomputation by day is idempotent; late arrivals land in the next pass.
+- **Un job programado, no un trigger.** Mantener el resumen desde el trigger de auditoría le cobraría el coste a cada guardado, y el guardado acababa de bajar de 730 ms precisamente por quitarle trabajo. El camino de escritura no sabe que el resumen existe.
+- **Recalcular dos días enteros, sin marca de agua por `id`.** Una secuencia no garantiza el orden de commit: la transacción que tiene el id 100 puede confirmar antes que la del 99, y una marca de agua sobre `id` se saltaría esa fila para siempre. Recalcular por día es idempotente: lo que llegue tarde entra en la siguiente pasada.
 
-**Also applied:** keyset pagination instead of `OFFSET`, and trigram GIN indexes for the text searches that were performing sequential scans.
-
----
-
-## 5. Regression guard on query plans
-
-A dropped index is invisible until production is slow. The query plans are asserted as tests: they run against a real PostGIS container and assert via `EXPLAIN` that each critical query still uses the index it was designed around. Removing an index fails the pull request.
-
-The mechanism is per-table rather than specific to the first table, because the second table required it before it was written.
-
-Construction of those tests, and the trap in the obvious implementation: [CI Pipeline](ci-pipeline-what-blocks.md#4-query-plan-assertions).
+**También:** paginación por keyset en vez de `OFFSET`, e índices GIN de trigramas para las búsquedas de texto que estaban haciendo scan.
 
 ---
 
-## 6. Rollup not built on the second table
+## 5. Que no se vuelva a romper
 
-**Proposal.** Copy the rollup mechanism to the second table.
+Un índice borrado sin querer es invisible hasta que producción va lenta. Así que los planes de ejecución se convirtieron en tests: corren contra un contenedor PostGIS real y comprueban con `EXPLAIN` que cada query crítica sigue usando el índice para el que se diseñó. Si alguien borra uno, el pull request se pone en rojo.
 
-**Measurement first.**
+El mecanismo es por tabla, no específico de la primera. Eso fue a propósito: la segunda tabla lo necesitaba antes de estar escrita.
+
+Cómo están construidos esos tests, y la trampa que tiene la forma obvia de escribirlos, está en el [write-up del pipeline](ci-pipeline-what-blocks.md#4-tests-sobre-los-planes-de-ejecución).
+
+---
+
+## 6. El resumen que decidí no construir
+
+**La propuesta.** Copiar el mecanismo del resumen a la segunda tabla.
+
+**Medir primero.**
 
 ```
 Index Only Scan
-  rows=232          <- 11,232 rows in the whole table
+  rows=232          <- 11.232 filas en toda la tabla
 Planning Time:  25.137 ms
 Execution Time:  0.560 ms
 ```
 
-232 rows, against 477,000 on the first table. Planning costs 45× more than execution, at which point the query is not the constraint — 0.560 ms is the entire budget.
+232 filas, frente a 477.000 en la primera tabla. Y **planificar la query cuesta 45 veces más que ejecutarla**: en ese punto la query no es el problema, porque medio milisegundo es el presupuesto entero.
 
-**Decision.** Not built. A precomputed summary would add a table, a scheduled job and a minute of staleness for no measurable gain. The measurement and the row-volume threshold that would reverse the decision are recorded in the code.
+**La decisión.** No construirlo. Un resumen precalculado no podía ganar nada y habría añadido una tabla, un job programado y un minuto de desfase a cambio. La medición y el umbral de volumen que invertiría la decisión están escritos en el código, para que el siguiente herede el razonamiento y no solo la conclusión.
 
 ---
 
-## 7. Defect introduced during this work
+## 7. Un fallo que introduje yo en este trabajo
 
-Adding the client IP to the audit context: `current_setting('x', true)` returns an empty string, not NULL, once it has been set in a session. On pooled connections the `COALESCE` chain then stored `''` permanently. Caught by a test written for the change, before release.
+Añadir la IP del cliente al contexto de auditoría parecía limpio. Pero `current_setting('x', true)` devuelve una cadena vacía, no NULL, en cuanto se ha fijado una vez en la sesión. Sobre conexiones de un pool, la cadena de `COALESCE` guardaba `''` para siempre. Lo cazó un test que escribí para ese mismo cambio, antes de publicarlo — que es la única razón de que sea una nota al pie y no un incidente de calidad de datos.
 
-Generalization: on a pooled connection, session state is not fresh state.
+Lo generalizable: **en una conexión de pool, el estado de sesión no es estado fresco.**
 
-## Tools
+## Herramientas
 
-k6 (custom scenarios, thresholds as contracts, `Trend`/`Rate`/`Counter`) · PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)` · Testcontainers + Flyway for plan-guard tests · JUnit tag selection to keep them off the fast build · GitHub Actions · ADRs
+k6 (escenarios propios, umbrales como contrato, `Trend`/`Rate`/`Counter`) · `EXPLAIN (ANALYZE, BUFFERS)` de PostgreSQL · Testcontainers y Flyway para los tests de plan · selección por tag de JUnit para mantenerlos fuera de la build rápida · GitHub Actions · ADRs

@@ -1,63 +1,63 @@
-# Talking Points — AppFibra
+# Puntos de conversación — AppFibra
 
-If I only get 60 seconds to explain what I built:
+Si solo tengo 60 segundos para explicar lo que he construido:
 
-I'm the only developer on AppFibra, a SaaS platform for FTTH fiber deployment in Germany — 200+ municipalities, 200,000+ homes, three clients running on it in production.
+Soy el único desarrollador de AppFibra, una plataforma SaaS para el despliegue de fibra FTTH en Alemania. Más de 200 municipios, más de 200.000 homes y tres clientes trabajando con ella en producción.
 
-**Stack**: Spring Boot backend, React frontend, PostgreSQL/PostGIS for the spatial data, FastAPI for the AI agent layer, Keycloak/OAuth2 for identity.
+**Stack**: backend en Spring Boot, frontend en React, PostgreSQL/PostGIS para el dato espacial, FastAPI para la capa de agentes de IA, y Keycloak/OAuth2 para identidad.
 
-**What I actually own**: everything, end to end — requirements, architecture, GIS pipelines, security, AI agents, deployment, and keeping it running when something breaks in production.
+**De qué soy responsable**: de todo, de punta a punta. Requisitos, arquitectura, pipelines de GIS, seguridad, agentes, despliegue, y mantenerlo en pie cuando algo se rompe en producción.
 
-**The parts I'd want to talk about in an interview:**
+**Las partes de las que me gustaría hablar en una entrevista:**
 
-- The GIS side — vector tiles, multi-client layer resolvers, precomputed construction status tables.
-- The AI agents — built on MCP with a semantic tool layer instead of text-to-SQL, with a feedback-to-eval loop instead of guessing whether a prompt change helped.
-- The security model — Keycloak/OAuth2, RBAC, resource scopes down to project/city level, M2M auth between the Java and Python services.
-- The audit backbone — catching when an external system silently overwrites data, with field-level diffing and restore.
-- The performance work — four confident hypotheses from reading code, all four wrong, and one architecture decision of my own reversed by its first measurement.
-- Capacity — how many concurrent users the platform actually takes, answered with a load test and a controlled experiment rather than an estimate, and the second time the measurement said don't build the thing at all.
-- The CI pipeline — the design question isn't which scanners to run, it's which ones are allowed to stop the work.
+- **GIS** — vector tiles, resolvers de capa por cliente, tablas de estado de obra precalculadas.
+- **Agentes de IA** — sobre MCP, con una capa de tools semánticas en vez de text-to-SQL, y un circuito que convierte el feedback negativo en casos de evaluación, para no adivinar si un cambio de prompt ha servido de algo.
+- **Modelo de seguridad** — Keycloak/OAuth2, RBAC, scopes de recurso hasta proyecto o ciudad, autenticación M2M entre los servicios Java y Python.
+- **La columna de auditoría** — detectar cuándo un sistema externo sobrescribe datos en silencio, con diff campo a campo y capacidad de revertir.
+- **Rendimiento** — cuatro hipótesis sacadas de leer el código, las cuatro falsas, y una decisión de arquitectura mía revertida por su primera medición.
+- **Capacidad** — cuántos usuarios concurrentes aguanta de verdad, contestado con una prueba de carga y un experimento controlado en vez de con una estimación. Y la segunda vez, la medición dijo que no construyera nada.
+- **El pipeline de CI** — la pregunta de diseño no es qué escáneres ejecutar, sino cuáles pueden parar el trabajo.
 
-**Why it's not "just another CRUD app"**: spatial data at scale, AI agents wired into real operational data instead of a demo, and security hardening that had to survive an actual identity migration — all shipped and running, not theoretical.
+**Por qué no es "otro CRUD más"**: dato espacial a escala, agentes de IA conectados a datos de operación reales y no a una demo, y un refuerzo de seguridad que tuvo que sobrevivir a una migración de identidad de verdad. Todo desplegado y funcionando, no sobre el papel.
 
 ---
 
-## If the conversation turns to performance
+## Si la conversación va a rendimiento
 
-*[Full write-up: [Measured Performance Diagnosis](../case-studies/measured-performance-diagnosis.md)]*
+*[Write-up completo: [rendimiento de la tabla](../case-studies/measured-performance-diagnosis.md)]*
 
-The follow-up grids handle hundreds of thousands of records across 40+ columns, and users said hovering and scrolling felt heavy.
+Las tablas de seguimiento manejan cientos de miles de registros con más de 40 columnas, y los usuarios decían que pasar el ratón y hacer scroll iba pesado.
 
-I had four hypotheses from reading the code. All four were wrong. The blinking indicators I blamed — `document.getAnimations()` said zero were running. The expensive `:hover` selectors — Selector Stats put them at 0.1% of the cost. The double render — that was StrictMode, development only. The broken virtualizer — I was profiling a different grid than the one I'd changed.
+Tenía cuatro hipótesis de leer el código. Las cuatro falsas. Los indicadores que parpadeaban, a los que culpé: `document.getAnimations()` decía que no había ninguna corriendo. Los selectores `:hover` caros: Selector Stats los dejó en el 0,1% del coste. El doble render: era StrictMode, solo en desarrollo. El virtualizador roto: estaba perfilando una tabla distinta de la que había tocado.
 
-What it actually was: a 0.1-second transition declared on the *cell* instead of the *row*, multiplied by forty columns into 952 concurrent animations. Style recalculation went from 45.7% of the profile to 16.1%.
+Lo que era de verdad: una transición de 0,1 segundos declarada en la **celda** en vez de en la **fila**, multiplicada por cuarenta columnas hasta 952 animaciones simultáneas. El recálculo de estilo bajó del 45,7% del perfil al 16,1%.
 
-**The one I'd lead with**: I deleted a Web Worker that an architecture decision *I had written* required. I benchmarked it and serializing the data to send it cost 7-10× more than the computation itself, at every size from 25 to 10,000 rows. Sending data to a worker doesn't take it off the main thread — the main thread pays the full structured clone before letting go. I rewrote the decision record from "use a worker" to "only if computing exceeds transferring", and required both numbers to be measured before anything else goes into one.
+**Con lo que empezaría**: borré un Web Worker que exigía una decisión de arquitectura **escrita por mí**. Lo medí, y serializar los datos para mandarlos costaba entre 7 y 10 veces más que el propio cálculo, en todos los tamaños de 25 a 10.000 filas. Mandar datos a un worker no los quita del hilo principal: el hilo principal paga el clonado entero antes de soltar. Reescribí la decisión de "usar un worker" a "solo si calcular cuesta más que transferir", con las dos cifras obligatorias antes de mover nada más.
 
-The habit underneath all of it: measure the variance before you measure the difference, and isolate one variable at a time. Everything else was tooling.
+El hábito que hay debajo de todo esto: medir la variabilidad antes de medir la diferencia, y aislar una variable cada vez. Lo demás son herramientas.
 
-## If they ask about scale, or "how many users can it take"
+## Si preguntan por escala, o "cuántos usuarios aguanta"
 
-*[Full write-up: [Capacity and Database Performance](../case-studies/capacity-and-database-performance.md)]*
+*[Write-up completo: [capacidad y base de datos](../case-studies/capacity-and-database-performance.md)]*
 
-Nobody knew, so I measured it. k6 scripts that reproduce the real mix of gestures, with thresholds that fail the run. The knee sits between 150 and 300 concurrent users; at 300 all six thresholds crossed at 187 req/s. Every gesture degraded together, which pointed at a shared resource rather than one bad query — and a controlled experiment separated the connection pool (small, real) from the CPU (dominant). That told the business to buy cores instead of paying me to tune settings that weren't the constraint.
+Nadie lo sabía, así que lo medí. Scripts de k6 que reproducen la mezcla real de gestos, con umbrales que tumban la ejecución. El codo está entre 150 y 300 usuarios concurrentes; a 300 se cruzaron los seis umbrales, a 187 req/s. Degradaron todos los gestos a la vez, lo que apuntaba a un recurso compartido y no a una query mala, y un experimento controlado separó el pool de conexiones (real, pequeño) de la CPU (dominante). Eso le dijo al negocio que comprara núcleos en vez de pagarme por ajustar parámetros que no eran la restricción.
 
-The database half: a save path from 730 ms to 113 ms by taking per-row work off it, and a history chart that was reading 477,000 rows on every request. That one is the better story — 283 ms sounds survivable until the plan shows each request recruiting three of the four vCPU, which is why ten concurrent users measured 934 ms. **Parallelism that helps one user is what sinks ten.**
+La mitad de base de datos: un guardado de 730 ms a 113 ms quitándole trabajo por fila, y un gráfico de historial que leía 477.000 filas en cada petición. Esa es la mejor historia: 283 ms suenan asumibles hasta que el plan enseña que cada petición reclutaba tres de las cuatro vCPU, que es por lo que con diez usuarios concurrentes la mediana era de 934 ms. **El paralelismo que ayuda a uno es lo que hunde a diez.**
 
-**The one I'd lead with here**: when I took the same treatment to the second table, the measurement said don't. 232 rows in the window, and planning the query cost forty-five times more than executing it — so the precomputed summary was never built, and the number plus the threshold that would reverse it went into the code instead. Deciding not to build is the same discipline; it just leaves less to point at.
+**Con lo que empezaría aquí**: cuando llevé el mismo tratamiento a la segunda tabla, la medición dijo que no. 232 filas en la ventana, y planificar la query costaba cuarenta y cinco veces más que ejecutarla. Así que el resumen precalculado no se construyó, y en su lugar entró en el código el número y el umbral que invertiría esa decisión.
 
-And the plans are now tests: they run against a real PostGIS container and assert via `EXPLAIN` that each critical query still uses its index. Plans per pull request, timings on a schedule — a plan is a fact about the query, a timing is a fact about the machine, and asserting timings on shared runners just teaches people to ignore the pipeline.
+Y los planes son ahora tests: corren contra un contenedor PostGIS real y comprueban con `EXPLAIN` que cada query crítica sigue usando su índice. Planes en cada pull request, tiempos en ejecución programada: un plan es un hecho sobre la query, un tiempo es un hecho sobre la máquina, y comprobar tiempos en runners compartidos solo enseña a la gente a ignorar el pipeline.
 
-## If the conversation turns to delivery and CI
+## Si la conversación va a entrega y CI
 
-*[Full write-up: [CI With Security Built In](../case-studies/ci-pipeline-what-blocks.md)]*
+*[Write-up completo: [pipeline de CI](../case-studies/ci-pipeline-what-blocks.md)]*
 
-One polyglot repo — Java, React, two Python services, and the whole PostGIS schema — with me as the only developer and real users in production.
+Un repositorio políglota — Java, React, dos servicios Python y el esquema PostGIS entero — conmigo como único desarrollador y usuarios reales en producción.
 
-The rule I designed it around: **a mature pipeline isn't measured by how many scanners it runs, but by whether any commit on main is deployable without manual intervention.** That decided the ordering — coverage is meaningless before the app boots in CI, and integration tests are impossible before the schema is versioned, so those came first.
+La regla con la que lo diseñé: **un pipeline maduro no se mide por cuántos escáneres ejecuta, sino por si cualquier commit de main se puede desplegar sin intervención manual.** Eso decidió el orden: la cobertura no significa nada antes de que la aplicación arranque en CI, y los tests de integración son imposibles antes de versionar el esquema, así que esas dos cosas fueron primero.
 
-The distinction I'd actually want to discuss: **findings informative is not the same as tool informative.** The SAST job doesn't fail when it finds things, but it does fail when the scan doesn't run. With a blanket `continue-on-error` those two look identical — red and ignored — and a broken scanner would report "we run SAST" while running nothing. A job that's always red teaches people to ignore CI, which is worse than not having it.
+La distinción que de verdad me apetece discutir: **que los hallazgos sean informativos no es lo mismo que la herramienta sea informativa.** El job de SAST no falla cuando encuentra cosas, pero sí falla cuando el escaneo no llega a ejecutarse. Con un `continue-on-error` general los dos casos se ven igual —rojo, e ignorado— y un escáner roto informaría de que "pasamos SAST" mientras no pasa nada. Un job que sale rojo pase lo que pase enseña a ignorar CI, que es peor que no tenerlo.
 
-Same thinking on dependency exceptions: each one carries an expiry date, so it can't become permanent by being forgotten, and one that no longer matches a live advisory also fails, so the list can't accumulate dead entries. Put the fire out; don't disable the alarm.
+Lo mismo con las excepciones de dependencias: cada una lleva fecha de caducidad, así que no puede volverse permanente por olvido, y una que ya no corresponde a ningún aviso vivo también tumba la build, así que la lista no acumula entradas muertas. Apagar el fuego, no desactivar la alarma.
 
-And the honest part: half the plan hit a paywall — code scanning and branch protection need a paid tier on private repos. I substituted what I could, wrote down **what each substitution lost**, and recorded branch protection as deferred rather than quietly dropping it. Six months from now, nobody should be able to mistake this pipeline for doing something it doesn't.
+Y la parte honesta: la mitad del plan se topó con un muro de pago, porque el escaneo de código y la protección de rama necesitan plan de pago en repos privados. Sustituí lo que pude, escribí **qué se perdía en cada sustitución**, y dejé la protección de rama anotada como aplazada en vez de quitarla en silencio. Dentro de seis meses, nadie debería poder confundir este pipeline con uno que hace algo que no hace.
