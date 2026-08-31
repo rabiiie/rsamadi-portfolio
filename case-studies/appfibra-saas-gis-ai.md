@@ -93,18 +93,36 @@ altas y bajas en lugar de cambios de campo.
 
 ---
 
-## 2. Permisos y accesos
+## 2. Seguridad: autenticación y autorización
 
-La autorización decide, para cada usuario, a qué cliente entra, qué módulos ve, qué puede tocar dentro de cada uno y sobre qué obras. Son cuatro planos que se combinan:
+### Quién entra
+
+Identidad federada con Keycloak/OAuth2. El JWT llega con roles, organización y módulos, y se
+convierte en autoridades en cada petición. Durante la migración convive una lista blanca de
+roles globales heredados, sin que el resto del código distinga el origen de cada autoridad.
+
+Los servicios internos también se autentican entre sí: el backend Java y los dos servicios
+Python no se conceden confianza por estar en la misma red.
+
+Alrededor: política de contraseñas, control de intentos de acceso, limitación de peticiones,
+CSRF en las mutaciones, CORS restringido en producción, registro de actividad de sesión y
+resolución de IP de cliente para la auditoría.
+
+### Qué puede ver y tocar
+
+La autorización decide, para cada usuario, a qué cliente entra, qué módulos ve, qué puede tocar
+dentro de cada uno y sobre qué obras. Son cuatro planos que se combinan:
 
 - **Cliente.** Un permiso concedido sobre los datos de un cliente no alcanza a los de otro.
 - **Módulo.** Seguimiento, GIS, informes, agentes, facturación, documentación fotográfica.
 - **Área dentro del módulo.** Cada tabla declara sus grupos de columnas y el permiso se concede por grupo, así que se puede editar el bloque de una fase de obra y solo ver el resto de la fila. Hay además columnas técnicas que ningún rol edita, declaradas en el modelo de cada tabla.
 - **Recurso.** El scope acota a proyectos concretos, o a ciudades según el cliente. Dos personas con el mismo rol ven filas distintas.
 
-A una subcontrata se le asignan sus obras y ve la plataforma acotada a ellas: listados, cuadros de mando, informes, exports y auditoría. El filtro se aplica en la consulta, no en la interfaz.
+A una subcontrata se le asignan sus obras y ve la plataforma acotada a ellas: listados, cuadros
+de mando, informes, exports y auditoría. El filtro se aplica en la consulta, no en la interfaz.
 
-Todo se asigna desde la pantalla de administración. Publicar un informe o un agente nuevo es una línea en su catálogo, y de ahí salen el permiso, la entrada de módulo y el chip de asignación.
+Todo se asigna desde la pantalla de administración. Publicar un informe o un agente nuevo es una
+línea en su catálogo, y de ahí salen el permiso, la entrada de módulo y el chip de asignación.
 
 Sobre el scope:
 
@@ -112,17 +130,13 @@ Sobre el scope:
 - Cada concesión admite fecha de fin, y a partir de ella deja de dar acceso por cualquier vía.
 - Existe un scope de cliente que actúa de comodín y se comprueba antes que el recurso concreto, así que "todas las ciudades de este cliente" es una fila.
 
-Cómo está construido:
+### Dónde se aplica
 
-- Identidad federada con Keycloak/OAuth2. El JWT llega con roles, organización y módulos, y se convierte en autoridades en cada petición. Durante la migración convive una lista blanca de roles globales heredados, sin que el resto del código distinga el origen de cada autoridad.
 - Un catálogo por familia como fuente única. Informes y agentes tienen el suyo y de él salen todos los derivados.
 - Un punto de comprobación por familia (cliente, recurso, informe, agente) que se ejecuta antes de resolver la consulta. Un agente sin acceso se rechaza sin llamar al modelo.
 - El scope entra en el SQL. No se filtra en memoria después de traer las filas.
 - `/api/session` devuelve los módulos, vistas, informes, agentes y acciones del usuario, y la pantalla a la que entra. El frontend pinta eso y no deriva accesos por su cuenta, así que añadir una familia de roles es tocar un único mapa en el servidor.
 - Row-level security en Postgres como segunda capa por debajo de la comprobación del backend.
-- Los servicios internos se autentican entre sí. El backend Java y los dos servicios Python no se conceden confianza por estar en la misma red.
-
-Alrededor: política de contraseñas, control de intentos de acceso, limitación de peticiones, registro de actividad de sesión y resolución de IP de cliente para la auditoría.
 
 ---
 
@@ -253,17 +267,12 @@ antes salían bien.
 
 ## 6. La documentación fotográfica
 
-Las cuadrillas fotografían las instalaciones de fibra y cada foto lleva un rótulo estampado con
+Las cuadrillas fotografían las instalaciones de fibra y cada foto lleva una marca de agua con
 la empresa, el pueblo, el nodo, la dirección y las coordenadas. Un microservicio en Python trata
-esas fotos: lee el rótulo, saca de él las coordenadas y las escribe en el EXIF, o al revés,
-resuelve la dirección contra Places y tablas de datos locales y estampa el rótulo corregido.
+esas fotos: lee la marca de agua, saca de ella las coordenadas y las escribe en el EXIF, o al revés,
+resuelve la dirección contra Places y tablas de datos de equipo de obra y estampa la marca de agua corregida.
 Después renombra los ficheros: cinco nomenclaturas distintas, una por cliente, tres de ellas
-cruzando contra un Excel o un CSV de referencia. Y borra el rótulo cuando lo que se entrega
-tiene que ir limpio.
-
-El operador lanza el trabajo sobre una carpeta y revisa el resultado foto a foto: qué se leyó,
-qué ubicación salió y con qué precisión. Los datos que faltan se piden por foto, porque una
-misma carpeta puede tener fotos de calles distintas.
+cruzando contra un Excel o un CSV de referencia.
 
 [Write-up completo](photodoc-silent-failures.md), con el OCR, el geocoding y el borrado del
 rótulo en detalle.
@@ -271,8 +280,6 @@ rótulo en detalle.
 ## Qué más hay en la plataforma
 
 Esto son capacidades. Las decisiones están arriba.
-
-**Seguridad.** Spring Security sobre Keycloak/OAuth2, scopes de recurso a nivel de proyecto o ciudad, RLS de PostgreSQL para aislar clientes, CSRF en las mutaciones, CORS restringido en producción, auditoría de sesión y autenticación M2M entre el backend Java y dos servicios Python.
 
 **Operación.** Las métricas de negocio tienen una única implementación en base de datos: todos sus consumidores, incluidos los informes y las tools del agente, llaman a la misma función, así que corregir una definición se propaga desde un solo sitio.
 
