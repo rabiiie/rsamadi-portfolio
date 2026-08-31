@@ -4,7 +4,7 @@
 
 ## De qué va
 
-Las cuadrillas fotografían las instalaciones de fibra. Cada foto lleva un rótulo estampado con empresa, pueblo, nodo, coordenadas y dirección. El pipeline lee ese rótulo, verifica la ubicación, la escribe en el EXIF de la foto, borra el rótulo y produce el conjunto documentado que se entrega al cliente.
+Las cuadrillas fotografían las instalaciones de fibra. Cada foto lleva un rótulo estampado con empresa, pueblo, nodo, coordenadas y dirección. El pipeline lee ese rótulo, verifica la ubicación y la escribe en el EXIF de la foto; reescribe el rótulo cuando lo que pone no cuadra con la dirección, renombra los ficheros según la nomenclatura del cliente, y borra el rótulo para producir el conjunto documentado que se entrega.
 
 - **Microservicio**: Python con FastAPI, en un Windows Server on-premise, con una instancia del módulo por hilo del pool.
 - **En la nube**: OCR, geocoding, extracción de campos e inpainting. La base de datos y los ficheros se quedan en casa.
@@ -69,7 +69,54 @@ Las cuatro pasan el filtro de "esto cae plausiblemente en Europa". Una guarda po
 
 ---
 
-## 4. Estado del trabajo y resultados de lote
+## 4. Corregir el rótulo y renombrar
+
+Además de leer el rótulo, el servicio lo reescribe y renombra los ficheros. Las dos cosas
+tienen el mismo riesgo de fondo: escriben encima de la entrega, y un fallo produce una foto
+con buena pinta y datos de otro sitio.
+
+**Dos fuentes independientes para la misma dirección.** El nombre del fichero lleva la
+dirección, y el rótulo también. Se normalizan las dos y se comparan. Para coincidir estando mal
+tendrían que haberse equivocado igual, así que cuando coinciden y no falta ningún campo la foto
+se aprueba sola, sin preguntar. Medido sobre un lote con el rótulo cambiado: 7 de 10 coincidían,
+y las 3 que discrepaban eran exactamente las que había que corregir.
+
+**Cuando discrepan, decide el operador.** Se le enseña la foto con el recuadro del rótulo
+marcado, las dos lecturas, el texto crudo del OCR y las ocho líneas que el rótulo va a pintar,
+que son más que la dirección. Puede corregir los campos, mover el recuadro o girar la foto 90°:
+una foto de lado deja el rótulo en el lateral y el recuadro no se encuentra, así que al girarla
+se rehace la lectura desde el OCR y el operador marca sobre la imagen buena.
+
+**El recuadro se recorta antes de leerlo.** En las fotos aparecen metros y reglas, y sus
+números entraban en el texto que se parsea como dirección. El recorte de esos objetos va antes
+del filtrado, no después.
+
+**Los campos se sacan en dos pasadas.** Primero expresiones regulares sobre el texto del rótulo;
+lo que quede sin resolver va a un modelo en Bedrock, sobre el texto ya leído, no sobre la
+imagen.
+
+**El renombrado tiene cinco nomenclaturas**, una por cliente. Dos cruzan contra un Excel de
+direcciones, una contra una tabla de referencia en CSV, y dos se resuelven con lo que ya está
+en el nombre del fichero.
+
+**Y ahí estaba el fallo más caro de los baratos.** Sin el Excel o el CSV, la tabla de referencia
+se quedaba vacía, la función avisaba en su log y se salía, y el trabajo terminaba como
+**completado sin haber renombrado nada**. Ahora la falta del fichero es un error que corta el
+trabajo antes de empezar, y una operación que no devuelve resumen también, en lugar de darse
+por hecha.
+
+**Cada foto deja su fila**, en base de datos y en un CSV junto a las fotos: fecha de ejecución,
+fichero original, calle y número del nombre, calle y número del rótulo, si coincidían, qué se
+hizo con ella y dónde acabó. Las que no se pueden resolver van a una carpeta de revisión, no al
+resultado.
+
+Un detalle de conteo: una ejecución interrumpida deja ficheros temporales de rotación en la
+misma carpeta. Se excluyen del recuento, porque no son fotos del cliente y contarlas falsea el
+total.
+
+---
+
+## 5. Estado del trabajo y resultados de lote
 
 **Problema A: el lote no decía nada.** La capa de servicio devolvía una cadena fija de éxito y la función de debajo ni siquiera devolvía sus estadísticas. Una ejecución podía terminar, reportar que fue bien y haber escrito **cero** coordenadas, sin forma de distinguirla de una que las corrigió todas.
 
@@ -91,7 +138,7 @@ Cinco caras, un solo fallo. Y cada cara se había mirado como si fuera un bug pr
 
 ---
 
-## 5. La autorización que avisaba en vez de denegar
+## 6. La autorización que avisaba en vez de denegar
 
 **El problema.** La comprobación anterior llamaba a una consulta de proyecto que pertenece a otra línea de producto, y que además no comprueba nada cuando el identificador llega nulo. En la práctica no había autorización.
 
@@ -106,7 +153,7 @@ Cinco caras, un solo fallo. Y cada cara se había mirado como si fuera un bug pr
 
 ---
 
-## 6. La decisión que no se arregla con ingeniería
+## 7. La decisión que no se arregla con ingeniería
 
 **La restricción.** Borrar el rótulo es la función que más le importa al negocio, y el modelo que lo hace solo existe en regiones de Estados Unidos. El anterior, alojado en Europa, está en fin de vida y cerrado a clientes nuevos, y elegirlo habría repetido un fallo que ya está en producción, que es montar un pipeline sobre un modelo que luego retiran. Y recortar el trozo antes de enviarlo no resuelve nada: el recorte **es** la zona de la dirección.
 

@@ -257,8 +257,9 @@ Las cuadrillas fotografían las instalaciones de fibra y cada foto lleva un rót
 la empresa, el pueblo, el nodo, la dirección y las coordenadas. Un microservicio en Python trata
 esas fotos: lee el rótulo, saca de él las coordenadas y las escribe en el EXIF, o al revés,
 resuelve la dirección contra Places y tablas de datos locales y estampa el rótulo corregido.
-Después renombra los ficheros según la nomenclatura que pida el cliente, tomándola de un Excel
-o un CSV de referencia, y borra el rótulo cuando lo que se entrega tiene que ir limpio.
+Después renombra los ficheros: cinco nomenclaturas distintas, una por cliente, tres de ellas
+cruzando contra un Excel o un CSV de referencia. Y borra el rótulo cuando lo que se entrega
+tiene que ir limpio.
 
 El operador lanza el trabajo sobre una carpeta y revisa el resultado foto a foto: qué se leyó,
 qué ubicación salió y con qué precisión. Los datos que faltan se piden por foto, porque una
