@@ -23,7 +23,7 @@ Después la empresa contrató desarrolladores para hacer la plataforma de seguim
 
 Lo que construí después empezó por el otro lado, por el dominio. Y creció a base de necesidades, no de elegir stack: primero Spring Boot con plantillas servidas, luego REST en cuanto metí tablas editables, y después la migración a React. Se lo enseñé a mi jefa y la empresa lo adoptó. Hoy lleva el control de fibra y producción, y alimenta otra aplicación de mantenimiento e instalaciones.
 
-Debajo hay cuatro bloques de la plataforma contados en detalle. El trabajo de rendimiento tiene write-ups aparte: [navegador](measured-performance-diagnosis.md) y [servidor](capacity-and-database-performance.md). El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md).
+Debajo hay cuatro bloques de la plataforma contados en detalle. El trabajo de rendimiento tiene write-ups aparte: [navegador](measured-performance-diagnosis.md) y [servidor](capacity-and-database-performance.md). El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md). Los problemas que costaron encontrar están recogidos en [trampas conocidas](../trampas-conocidas.md).
 
 ---
 
@@ -154,9 +154,7 @@ Dos caminos, según lo que se pinte:
 - **Teselas vectoriales generadas al vuelo** desde PostGIS, con caché de servidor propia. La caché es independiente de la general de la aplicación, porque el tamaño compartido de esta se queda corto para teselas. Una tesela ya calculada se sirve sin volver a tocar la base de datos.
 - **Archivos PMTiles generados por adelantado** para las capas de diseño de un proyecto. La cadena es PostGIS → GeoJSON por tipo de geometría en EPSG:4326 → GeoPackage → PMTiles con GDAL, y se sirven con soporte de rangos HTTP para que el visor pida solo el trozo que necesita.
 
-El dato GIS cambia una vez al día, con el proceso nocturno, así que la caché tiene una vida larga y se invalida por proyecto cuando hay un recálculo de verdad.
-
-**Un detalle de caché que costó encontrar.** Las teselas se piden siempre al mismo host que sirve el visor, así que no necesitan CORS. Pero el filtro CORS de Spring Security añade una cabecera `Vary` a **todas** las respuestas, antes incluso de mirar su configuración, y con ese `Vary` el proxy de delante se niega a cachear las teselas: 0% de aciertos. Hay un filtro que quita esa cabecera solo en las rutas de teselas, y las deja cacheables con `max-age` y `ETag`. El `ETag` es el hash de la clave de caché e incluye la versión del proyecto, así que una tesela regenerada cambia de `ETag` y el proxy la vuelve a pedir sin necesidad de purgar nada.
+El dato GIS cambia una vez al día, con el proceso nocturno, así que la caché tiene una vida larga y se invalida por proyecto cuando hay un recálculo de verdad. Las teselas salen con `ETag` y con cabeceras que permiten al proxy servirlas sin llegar a la aplicación; el `ETag` incluye la versión del proyecto, así que una regeneración las invalida sin purgar nada a mano.
 
 ### Los números de obra
 

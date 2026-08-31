@@ -13,6 +13,7 @@ Aquí tienes los write-ups de lo que he hecho, sin código propietario, sin dato
 - [Rendimiento de una tabla de datos — diagnóstico en el navegador](case-studies/measured-performance-diagnosis.md)
 - [Capacidad y base de datos — pruebas de carga y trabajo de queries](case-studies/capacity-and-database-performance.md)
 - [Pipeline de CI — qué comprobaciones pueden bloquear](case-studies/ci-pipeline-what-blocks.md)
+- [Trampas conocidas](trampas-conocidas.md)
 - [Diagramas de arquitectura](diagrams/appfibra-platform.md)
 - [Resumen en 60 segundos](presentation/rabie-samadi-technical-portfolio.md)
 
