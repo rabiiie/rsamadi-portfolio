@@ -23,7 +23,7 @@ Después la empresa contrató desarrolladores para hacer la plataforma de seguim
 
 Lo que construí después empezó por el otro lado, por el dominio. Y creció a base de necesidades, no de elegir stack: primero Spring Boot con plantillas servidas, luego REST en cuanto metí tablas editables, y después la migración a React. Se lo enseñé a mi jefa y la empresa lo adoptó. Hoy lleva el control de fibra y producción, y alimenta otra aplicación de mantenimiento e instalaciones.
 
-Debajo hay cuatro bloques de la plataforma contados en detalle. El trabajo de rendimiento tiene write-ups aparte: [navegador](measured-performance-diagnosis.md) y [servidor](capacity-and-database-performance.md). El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md). Los problemas que costaron encontrar están recogidos en [trampas conocidas](../trampas-conocidas.md).
+Debajo hay cinco bloques de la plataforma contados en detalle. El trabajo de rendimiento tiene write-ups aparte: [navegador](measured-performance-diagnosis.md) y [servidor](capacity-and-database-performance.md). El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md). Los problemas que costaron encontrar están recogidos en [trampas conocidas](../trampas-conocidas.md).
 
 ---
 
@@ -217,11 +217,41 @@ Los roles de capa y los resolvers son configuración por cliente, y los KPIs de 
 
 Los usuarios pueden además añadir sus propias capas sobre el mapa, con sus metadatos.
 
+---
+
+## 5. Los agentes
+
+Dos agentes de dominio responden preguntas de operación en lenguaje natural: cuántos homes hay
+pasados en un municipio, qué contratos se cancelaron con la obra ya hecha, qué está listo para
+activar. Uno tiene una superficie SQL restringida con control de admisión; el otro trabaja con
+19 tools hechas a medida sobre Model Context Protocol.
+
+Las tools no generan SQL. Envuelven las mismas vistas que leen los informes oficiales, así que
+el agente y el informe semanal no pueden dar cifras distintas: hay una sola definición y no la
+controla ninguno de los dos. Hay tools para resolver un proyecto por nombre, resumir hitos de
+un proyecto o de la cartera entera, contratos por estado, la ficha de un home, lo que está
+listo para la siguiente fase y detección de anomalías.
+
+Toda tool de agregación devuelve la cifra acompañada de su cobertura: qué entró, qué quedó
+fuera y por qué, la vista de la que sale el dato, y las advertencias que apliquen. Los listados
+llevan un tope de filas y marcan cuándo el resultado se ha cortado.
+
+El acceso al agente se asigna como cualquier otro permiso, y está acotado por dominio: quien
+tiene el agente de un cliente no obtiene respuestas del otro. La comprobación se hace antes de
+llamar al modelo. El JWT del usuario viaja hasta el servidor de tools, que aplica el mismo
+control de scope por proyecto que la API REST, así que un usuario acotado a unas obras las ve
+acotadas también preguntando.
+
+La orquestación es Python con FastAPI y respuestas en streaming; el servidor de tools es Spring
+Boot; los modelos se sirven por Amazon Bedrock. Hay un banco de evaluación con casos y un juez
+automático para comprobar que un cambio en las tools o en el prompt no empeora respuestas que
+antes salían bien.
+
+[Write-up completo](mcp-agents-semantic-tools.md).
+
 ## Qué más hay en la plataforma
 
 Esto son capacidades. Las decisiones están arriba.
-
-**Agentes de IA.** Agentes de dominio sobre Model Context Protocol, con una capa de tools semánticas y no text-to-SQL; las tools envuelven las mismas vistas que leen los informes oficiales. [Write-up aparte](mcp-agents-semantic-tools.md).
 
 **Seguridad.** Spring Security sobre Keycloak/OAuth2, scopes de recurso a nivel de proyecto o ciudad, RLS de PostgreSQL para aislar clientes, CSRF en las mutaciones, CORS restringido en producción, auditoría de sesión y autenticación M2M entre el backend Java y dos servicios Python.
 
