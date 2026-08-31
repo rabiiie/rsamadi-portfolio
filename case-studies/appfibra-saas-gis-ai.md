@@ -23,106 +23,166 @@ Después la empresa contrató desarrolladores para hacer la plataforma de seguim
 
 Lo que construí después empezó por el otro lado, por el dominio. Y creció a base de necesidades, no de elegir stack: primero Spring Boot con plantillas servidas, luego REST en cuanto metí tablas editables, y después la migración a React. Se lo enseñé a mi jefa y la empresa lo adoptó. Hoy lleva el control de fibra y producción, y alimenta otra aplicación de mantenimiento e instalaciones.
 
-Debajo hay cinco defectos y decisiones. El trabajo de rendimiento tiene write-ups aparte: [navegador](measured-performance-diagnosis.md) y [servidor](capacity-and-database-performance.md). El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md).
+Debajo hay cuatro bloques de la plataforma contados en detalle. El trabajo de rendimiento tiene write-ups aparte: [navegador](measured-performance-diagnosis.md) y [servidor](capacity-and-database-performance.md). El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md).
 
 ---
 
-## 1. Una auditoría que reportaba cambios falsos
+## 1. Auditoría de cambios de las importaciones
 
-**El problema.** La importación diaria guardaba un historial de cambios, para poder decir quién tocó qué cuando un cliente discutía una cifra. Sobre un dataset de 164.107 filas reportaba unas 96.000 filas modificadas en cada ejecución. Casi todas falsas.
+Las importaciones diarias dejan un historial campo a campo. Por cada ejecución queda registrado qué columna de qué fila cambió, con el valor anterior y el nuevo.
 
-Un historial con ese ruido no es un historial malo: es un historial inútil. Nadie busca un cambio real entre 96.000 falsos.
+Con eso se puede responder a un cliente que discute una cifra, con fecha y valor previo. Se puede ver la línea temporal de una dirección cruzando datasets, porque la clave se normaliza a una forma canónica común y el mismo home aparece aunque cada fichero de origen lo escriba distinto. Y un tercero que reescribe media tabla aparece como un pico de cambios en una ejecución concreta.
 
-**La causa.** Comparaba en memoria, como texto, el CSV que entraba contra las filas guardadas. Las fechas estaban almacenadas como `2020-09-23 16:10:54` y llegaban como `23/09/2020 16:10`. Mismo instante, distinta representación. Cada fila con fecha salía modificada todos los días.
+Las altas y las bajas guardan la fila entera en `jsonb`, así que un registro borrado se puede volver a consultar tal y como estaba.
 
-**Lo que hice.**
+La definición de qué cuenta como cambio es de negocio y está en el propio mecanismo. Las columnas de fecha se comparan por día: un hito que pasa de las 16:10 a las 16:54 del mismo día no entra en el historial. El resto de columnas se comparan por texto normalizado.
 
-- **Moví el diff a la base de datos.** Cada ejecución carga el fichero en una tabla de staging creada `LIKE` la tabla destino, así que la comparación usa los tipos reales de las columnas. Comparando fecha contra fecha, el formato deja de existir como problema.
-- **Columna a columna, con `LATERAL VALUES`.** El primer intento comparaba `to_jsonb(row)`, que es más elegante y está mal por dos motivos: una sola fecha mal formateada marca la fila entera, y encima no te dice qué campo se movió, que es para lo que existe el historial.
-- **Las fechas se comparan por día.** Esto no es una decisión técnica, es una regla de negocio: aquí la fecha cuenta y la hora no. Si un hito pasa de las 16:10 a las 16:54 del mismo día, para el seguimiento de obra no ha cambiado nada.
-- **Freno de borrado.** Una importación de tipo snapshot se aborta si va a borrar más del 20% de una tabla con 100 filas o más. Un fichero que llega truncado es algo que pasa; vaciar media tabla porque el fichero venía cortado, no.
-- **Las altas y bajas guardan un snapshot `jsonb`.** Ahí sí vale: se guarda, no se compara.
+Dos límites de escritura:
 
-**El resultado.** Verificado en producción sobre el primer dataset migrado: 164.107 filas procesadas, **0 cambios reportados**. El mecanismo no depende del dataset; el resto están en cola.
+- Una importación que trae la foto completa del origen se aborta si va a borrar más del 20% de una tabla con 100 filas o más.
+- El registro es solo de altas. Un cambio anotado no se puede editar ni borrar después, y lo impide la base de datos.
 
-**Y de paso aparecieron dos cosas que no tenían que ver con la auditoría:**
+El historial de un home se consulta por un endpoint de administración, filtrable por dataset. El panel de importaciones muestra, por ejecución, cuántas filas entraron, cuántas cambiaron y con qué resultado.
 
-Una vista materializada de la que leen las pantallas de seguimiento **no se refrescaba nunca**. Tenía datos, así que nada parecía roto. Solo estaban viejos, y una segunda vista que leía de ella heredaba el desfase. Ahora se refresca encadenada, en orden de dependencia, después de la importación que la alimenta.
-
-Y un dataset no tiene clave única por fila: dos filas pueden compartir todas las columnas que identifican. Lo normal sería deduplicar. Al mirarlas resultó que eran trabajos distintos sobre el mismo pedido, con tipos de trabajo diferentes, así que deduplicar habría borrado registros válidos para que el algoritmo estuviera cómodo. Ese se audita por hash de contenido: `md5` sobre el `to_jsonb` de la fila menos las columnas excluidas. Si está en staging y no en destino es un alta, al revés una baja, y un cambio de campo aparece como las dos cosas. Es menos preciso y no miente.
+El mecanismo no depende del dataset: se declara qué tabla, qué clave y qué columnas son fechas. Para un dataset sin clave única por fila la auditoría es por hash de contenido, y registra altas y bajas en lugar de cambios de campo.
 
 ---
 
-## 2. Permisos por informe
+## 2. Permisos y accesos
 
-**Lo que pedía el negocio.** Poder dar acceso a un informe sí y a otro no: este usuario ve el semanal pero no el de activaciones. Y los informes crecían, varios por cliente.
+La autorización decide, para cada usuario, a qué cliente entra, qué módulos ve, qué puede tocar dentro de cada uno y sobre qué obras. Son cuatro planos que se combinan:
 
-**El diseño.** Los informes son un módulo y cada informe un área dentro de él, reutilizando la forma de permiso que la plataforma ya usaba para los grupos de columnas. Un único catálogo mapea cliente → lista de informes, y de ahí salen solos el nombre de la authority, la entrada del modelo de permisos, la del módulo y los chips de la pantalla de asignación. **Añadir un informe es una línea.**
+- **Cliente.** Un permiso concedido sobre los datos de un cliente no alcanza a los de otro.
+- **Módulo.** Seguimiento, GIS, informes, agentes, facturación, documentación fotográfica.
+- **Área dentro del módulo.** Cada tabla declara sus grupos de columnas y el permiso se concede por grupo, así que se puede editar el bloque de una fase de obra y solo ver el resto de la fila. Hay además columnas técnicas que ningún rol edita, declaradas en el modelo de cada tabla.
+- **Recurso.** El scope acota a proyectos concretos, o a ciudades según el cliente. Dos personas con el mismo rol ven filas distintas.
 
-**El fallo que encontré escribiéndolo.** El identificador del informe llega como parámetro de la petición, y se estaba resolviendo por separado en tres sitios del mismo controller: para elegir la tabla, para el nombre del export y en un endpoint de comparación. Los tres eran correctos.
+A una subcontrata se le asignan sus obras y ve la plataforma acotada a ellas: listados, cuadros de mando, informes, exports y auditoría. El filtro se aplica en la consulta, no en la interfaz.
 
-Pero tres interpretaciones de una misma entrada es un bypass esperando una errata: en cuanto dos discrepan, el guard autoriza un informe y la query sirve otro. Ahora resuelve un único sitio, y hay un solo método que resuelve, llama al guard y devuelve la tabla. No queda camino que llegue a los datos sin pasar el control.
+Todo se asigna desde la pantalla de administración. Publicar un informe o un agente nuevo es una línea en su catálogo, y de ahí salen el permiso, la entrada de módulo y el chip de asignación.
 
-**Un cambio de comportamiento a propósito.** Antes, tener cualquier rol de seguimiento te daba los informes por herencia. Lo quité: ahora hay que concederlos explícitamente. Lo hice en ese momento justamente porque el grueso de los usuarios todavía no estaba creado y migrar costaba cero. Seis meses después habría sido una semana de soporte.
+Sobre el scope:
 
-**Lo que mantuve.** Los informes siguen filtrando por scope. El rol decide qué informe, el scope cuántos proyectos.
+- Los niveles se ordenan: `view` < `edit` < `admin`, y un permiso concedido cubre los inferiores. Un valor que no se reconozca no cubre nada.
+- Cada concesión admite fecha de fin, y a partir de ella deja de dar acceso por cualquier vía.
+- Existe un scope de cliente que actúa de comodín y se comprueba antes que el recurso concreto, así que "todas las ciudades de este cliente" es una fila.
 
----
+Cómo está construido:
 
-## 3. El frontend recalculaba permisos que el backend ya sabía
+- Identidad federada con Keycloak/OAuth2. El JWT llega con roles, organización y módulos, y se convierte en autoridades en cada petición. Durante la migración convive una lista blanca de roles globales heredados, sin que el resto del código distinga el origen de cada autoridad.
+- Un catálogo por familia como fuente única. Informes y agentes tienen el suyo y de él salen todos los derivados.
+- Un punto de comprobación por familia (cliente, recurso, informe, agente) que se ejecuta antes de resolver la consulta. Un agente sin acceso se rechaza sin llamar al modelo.
+- El scope entra en el SQL. No se filtra en memoria después de traer las filas.
+- `/api/session` devuelve los módulos, vistas, informes, agentes y acciones del usuario, y la pantalla a la que entra. El frontend pinta eso y no deriva accesos por su cuenta, así que añadir una familia de roles es tocar un único mapa en el servidor.
+- Row-level security en Postgres como segunda capa por debajo de la comprobación del backend.
+- Los servicios internos se autentican entre sí. El backend Java y los dos servicios Python no se conceden confianza por estar en la misma red.
 
-**El problema.** Los guards de ruta, la navegación y la lógica de aterrizaje mantenían cada uno su propia unión de nombres de rol, escrita a mano. Cuando aparecía una familia de roles nueva, esas listas no se actualizaban. Y fallaba en las dos direcciones: usuarios a los que se les negaban pantallas que sí les tocaban, y enlaces de menú que llevaban a un 403.
-
-**La causa.** Había una segunda implementación de una regla que el backend ya calculaba bien. El mapa de módulos del servidor estuvo correcto todo el tiempo; los que se habían desviado eran los consumidores del frontend.
-
-De los dos fallos, **solo el 403 lo reporta alguien**. Una pantalla que te corresponde y nunca ves no genera error, ni ticket, ni rastro. Parece simplemente que esa función no se hizo para ti.
-
-**La solución.** `/api/session` devuelve `allowedModules` y `allowedReports`, y el frontend pinta eso y no lo recalcula desde `session.roles`. Añadir una familia de roles hoy es tocar un único mapa en el servidor.
-
-De paso cayó código muerto: una tabla de prioridad de aterrizaje que ya sustituía un dato del backend, y una entrada de navegación que pedía una familia de roles distinta de la que exigía su propia ruta.
-
----
-
-## 4. El undo, y la edición que nunca se registró
-
-**Qué es.** La plataforma mantiene un espejo de una API externa de partes de trabajo, con un log de cambios campo a campo en el que solo se añade. El undo se apoya en ese log: se puede revertir una edición suelta o un guardado entero, con bloqueo optimista.
-
-La vista previa separa las filas en tres grupos: las que nadie ha tocado desde entonces, las que otro usuario ha sobrescrito mientras tanto, y las que quedan fuera del scope del que revierte. Pisar el segundo grupo exige una confirmación explícita, porque estás descartando trabajo de otra persona.
-
-**Lo que encontré construyéndolo.** La auditoría **no registraba la primera edición de cada fila**: la que crea su capa manual sobre el dato importado.
-
-O sea que el undo no habría devuelto nada justo para las filas editadas una sola vez, que son las que con más probabilidad quieres revertir. Y no habría fallado: ni error, ni línea en el log, ni test en rojo. Un botón que no hace nada.
-
-**El arreglo.** Registrar también la primera edición, para que toda fila tenga un estado anterior al que volver.
+Alrededor: política de contraseñas, control de intentos de acceso, limitación de peticiones, registro de actividad de sesión y resolución de IP de cliente para la auditoría.
 
 ---
 
-## 5. Verificar un número en vez de fiarse del código
+## 3. Las tablas de seguimiento
 
-**El contexto.** "Homes passed" es la cifra sobre la que gira este negocio, y la calcula una función de base de datos a partir de códigos de estado. Esa implementación era la única definición escrita que existía, y nadie la había contrastado con la normativa técnica del cliente.
+Son la pantalla principal de trabajo de la oficina: rejillas de cientos de miles de filas y más de cuarenta columnas, editadas por varias personas a la vez, con el dato entrando por la importación diaria y saliendo hacia informes y facturación.
 
-**Lo que salió.** La cuenta estaba bien en lo esencial. Dos cosas no.
+Un usuario puede filtrar, ordenar, agrupar, esconder y reordenar columnas, fijar las que quiere tener siempre delante, cambiar la densidad de las filas, pintar con formato condicional, editar en línea celda a celda o por lotes, analizar con una tabla dinámica, exportar, y abrir el historial de cualquier fila.
 
-- Un código que la propia tabla de la normativa marca como homes passed está excluido por la función. La exclusión es correcta (esa columna describe alcance de planificación, no infraestructura construida), pero el motivo no estaba escrito en ningún sitio.
-- Otro código que la normativa **no** cuenta como homes passed sí lo contaba la función. Impacto: 10 homes de la cartera activa. Pendiente de decidir si se excluye.
+### Las vistas guardadas
 
-**Lo que cambió.** Sobre todo, que el número ya tiene una fuente escrita que no es el código fuente, referenciada contra el apartado de la normativa. Todos los que consumen esa cifra, incluidas las tools del agente de IA, llaman a las mismas dos funciones, así que una corrección se propaga desde un solo sitio.
+Toda esa configuración se guarda como una vista con nombre, y una vista guarda **todo** lo que define lo que ves: filtro global, filtros por columna, ordenación, columnas visibles, su orden, densidad, agrupación, reglas de formato condicional, columnas fijadas y numeración de filas. Con su versión de formato, para que una vista guardada hace meses siga abriéndose cuando el formato cambie.
 
-**Algo relacionado, que documenté sin arreglarlo.** El campo que decide si un home cuenta como facturado es texto libre que se rellena a mano. Parsearlo pide ocho expresiones regulares y hay dos tipos de valor que no se pueden resolver: un marcador que no es parseable, y un formato de semana sin año que no se puede asignar a ningún mes. La definición canónica se redujo a "el campo está y no está vacío". Un parser no puede recuperar información que la entrada nunca tuvo.
+El formato condicional viaja dentro de la vista. Si se quedara fuera, la vista restaurada no se parecería a la que se guardó.
+
+### La barra de mando
+
+La barra sigue una regla: arriba va lo que tiene estado que hay que ver sin pulsarlo, que son la agrupación activa y los filtros puestos con su aspa para quitarlos; dentro del menú va lo que solo ejecuta una acción.
+
+Hay una paleta de comandos con `Ctrl+K`, y no sustituye al menú. En la paleta se busca escribiendo el nombre de la función, así que solo sirve a quien ya sabe que existe. El menú es el camino para descubrirla.
+
+### Editar entre varios sin pisarse
+
+- **Candados por celda, en tiempo real.** Al entrar en una celda se toma un candado que caduca en 25 segundos y se renueva mientras se está escribiendo. Quien la tenga cogida la ve marcada, y los demás saben que está ocupada antes de escribir en ella.
+- **Un solo temporizador consulta quién tiene cogida cada celda**, en lugar de que cada cliente pregunte por su cuenta.
+- **Bloqueo optimista al guardar.** El cliente manda la versión que creía tener; si no coincide, el servidor responde con la fila tal y como está ahora, no con un error genérico.
+- **Un conflicto no tumba el resto del guardado.** Se aplica lo que está limpio y se devuelven los conflictos aparte, con la respuesta marcada como parcial.
+- **Los permisos se comprueban fila a fila**, no por guardado. Lo que cae fuera del alcance del usuario vuelve identificado, sin cancelar lo demás.
+
+### Deshacer, después de guardar
+
+`Ctrl+Z` deshace lo que todavía no ha salido del navegador. Esto es lo otro: lo que pasa **después de guardar**, que es un problema distinto, porque un dato que ya han visto otros no se puede deshacer. Solo se puede escribir encima para restaurar el valor anterior.
+
+Revertir es una escritura nueva, no una anulación: queda auditada con su autor y su hora, y pasa por el mismo bloqueo optimista que cualquier edición. El historial no se reescribe.
+
+Tres formas:
+
+- **Avisar antes.** Una edición masiva pide confirmación diciendo cuántas filas va a tocar.
+- **Deshacer un cambio suelto** desde el historial de esa fila, para el error puntual.
+- **Deshacer un guardado entero.** Cada guardado lleva un identificador propio, así que un lote de doscientas filas es una unidad, y el error masivo se corrige sin ir una por una.
+
+Entre el guardado y el momento de revertirlo pasa tiempo, y las filas dejan de estar todas igual. La pantalla las reparte en tres grupos:
+
+- **Las que nadie ha tocado desde entonces.** Se revierten directamente.
+- **Las que otra persona ha modificado después.** Restaurar el valor anterior también borra lo que escribió esa persona, así que no se hacen solas: hay que pedirlo expresamente, sabiendo lo que se pisa.
+- **Las que están fuera del alcance de quien revierte.** No se pueden escribir, y forzar no cambia nada, porque no es una cuestión de quién escribió el último sino de permisos.
+
+Los dos últimos grupos van separados a propósito. Si se juntaran en un montón de "filas con problema", la pantalla ofrecería un botón de forzar que resuelve unas y no otras, y quien lo pulsa se queda sin saber por qué siguen quedando filas sin revertir.
+
+La recuperación de la base de datos a un punto en el tiempo queda fuera de la aplicación: es una operación de sistemas, no una acción de usuario.
+
+### Cobertura
+
+El historial y la reversión están sobre la tabla de seguimiento de un cliente, y pendientes de propagar al resto. Las piezas se escribieron con nombres neutros para que sirvan a cualquier tabla; dos rejillas anteriores conservan su propia copia con los nombres de su clave, y migrarlas cambiaría el JSON que ya consumen sus frontends.
+
+No todas las tablas admiten lo mismo: las que se derivan de otra fuente son de solo lectura, y en las que no tienen columna de versión el guardado es el último que escribe. Está declarado en cada caso.
 
 ---
+
+## 4. El GIS
+
+La red se planifica y se construye sobre el mapa. Las geometrías viven en PostGIS y el visor del navegador es MapLibre.
+
+### Cómo entran los datos
+
+Los ficheros de proyecto llegan en SHP, GPKG y DXF. Se importan con GDAL a tablas de staging y de ahí a tablas unificadas por tipo de red, con los atributos guardados como `jsonb` a partir de la fila entera menos las columnas de geometría. Eso conserva atributos propios del origen, como la capa del DXF, sin declararlos uno a uno en el esquema.
+
+Cada importación queda versionada, así que se puede saber de qué entrega viene cada geometría.
+
+### Cómo se sirve el mapa
+
+Dos caminos, según lo que se pinte:
+
+- **Teselas vectoriales generadas al vuelo** desde PostGIS, con caché de servidor propia. La caché es independiente de la general de la aplicación, porque el tamaño compartido de esta se queda corto para teselas. Una tesela ya calculada se sirve sin volver a tocar la base de datos.
+- **Archivos PMTiles generados por adelantado** para las capas de diseño de un proyecto. La cadena es PostGIS → GeoJSON por tipo de geometría en EPSG:4326 → GeoPackage → PMTiles con GDAL, y se sirven con soporte de rangos HTTP para que el visor pida solo el trozo que necesita.
+
+El dato GIS cambia una vez al día, con el proceso nocturno, así que la caché tiene una vida larga y se invalida por proyecto cuando hay un recálculo de verdad.
+
+**Un detalle de caché que costó encontrar.** Las teselas se piden siempre al mismo host que sirve el visor, así que no necesitan CORS. Pero el filtro CORS de Spring Security añade una cabecera `Vary` a **todas** las respuestas, antes incluso de mirar su configuración, y con ese `Vary` el proxy de delante se niega a cachear las teselas: 0% de aciertos. Hay un filtro que quita esa cabecera solo en las rutas de teselas, y las deja cacheables con `max-age` y `ETag`. El `ETag` es el hash de la clave de caché e incluye la versión del proyecto, así que una tesela regenerada cambia de `ETag` y el proxy la vuelve a pedir sin necesidad de purgar nada.
+
+### Los números de obra
+
+Los indicadores de construcción no se calculan en cada petición: se precalculan en tablas de estudio. El recálculo pasa por una cola guardada en la base de datos, no en memoria:
+
+- Las filas pendientes se reclaman con `FOR UPDATE SKIP LOCKED`, así que varias instancias pueden trabajar sobre la misma cola sin pisarse.
+- Los trabajos que se quedan colgados demasiado tiempo se recuperan en el siguiente ciclo.
+- Un nodo se puede configurar para no procesar cómputo, y solo servir.
+
+Sobre esas tablas se apoya el análisis: resúmenes por proyecto, desglose por estado, transiciones entre entregas, y avisos cuando dos conjuntos no son comparables entre sí. Los metros de obra civil se calculan descontando los conductos paralelos, para no contar dos veces la misma zanja.
+
+### Multicliente
+
+Los roles de capa y los resolvers son configuración por cliente, y los KPIs de cada uno salen de su propia configuración. El GIS pasó de un cliente a tres sin reescritura.
+
+Los usuarios pueden además añadir sus propias capas sobre el mapa, con sus metadatos.
 
 ## Qué más hay en la plataforma
 
 Esto son capacidades. Las decisiones están arriba.
 
-**GIS.** Modelo PostGIS para las capas de red, vector tiles/MVT, importación de SHP con manejo de CRS/EPSG, mapas con MapLibre/Leaflet, tablas de estado de obra precalculadas, roles de capa y resolvers configurables por cliente, y filtrado por proyecto en el backend.
-
 **Agentes de IA.** Agentes de dominio sobre Model Context Protocol, con una capa de tools semánticas y no text-to-SQL; las tools envuelven las mismas vistas que leen los informes oficiales. [Write-up aparte](mcp-agents-semantic-tools.md).
 
 **Seguridad.** Spring Security sobre Keycloak/OAuth2, scopes de recurso a nivel de proyecto o ciudad, RLS de PostgreSQL para aislar clientes, CSRF en las mutaciones, CORS restringido en producción, auditoría de sesión y autenticación M2M entre el backend Java y dos servicios Python.
 
-**Operación.** Bloqueo optimista para edición concurrente de tablas, jobs programados con seguimiento por ejecución, y paneles de operación sobre el pipeline de importación.
+**Operación.** Jobs programados con seguimiento por ejecución y paneles de operación sobre el pipeline de importación. Las métricas de negocio tienen una única implementación en base de datos: todos sus consumidores, incluidos los informes y las tools del agente, llaman a la misma función, así que corregir una definición se propaga desde un solo sitio.
 
 **Documentación fotográfica.** OCR, geocoding y borrado de marcas de agua sobre fotos de campo, donde lo que se entrega al cliente *es* la foto. [Write-up aparte](photodoc-silent-failures.md).
 
