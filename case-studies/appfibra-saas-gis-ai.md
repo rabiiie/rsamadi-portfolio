@@ -29,24 +29,22 @@ Debajo hay cuatro bloques de la plataforma contados en detalle. El trabajo de re
 
 ## 1. Las importaciones diarias y la auditoría de cambios
 
-La mayoría de los datos de la plataforma no se teclean: entran solos, de madrugada, leyendo
-ficheros que generan sistemas de terceros. Diecisiete importaciones registradas, repartidas
-entre los tres clientes, cada una con sus datasets.
+La mayoría de los datos de la plataforma entran por importaciones automáticas que leen
+ficheros generados por sistemas de terceros. Hay diecisiete registradas, repartidas entre los
+tres clientes, cada una con sus datasets.
 
 ### Cómo se ejecutan
 
-El horario no está en el código. Vive en una tabla, con la hora, la zona horaria y un
-interruptor de encendido por job, y se edita desde el panel de administración. Un proceso
-comprueba cada minuto qué toca y lanza lo que ha vencido, así que cambiar la hora de una
-importación es guardar un campo, no recompilar y desplegar.
+El horario vive en una tabla, con la hora, la zona horaria y un interruptor de encendido por
+job, y se edita desde el panel de administración. Un proceso comprueba cada minuto qué ha
+vencido y lo lanza. Cambiar la hora de una importación es guardar un campo.
 
 Las horas por defecto van escalonadas entre las 06:00 y las 09:00 para que las importaciones
 no se pisen entre ellas ni con el uso de la mañana.
 
-Que un job no se ejecute dos veces a la vez está resuelto en dos niveles: dentro de un mismo
-proceso basta un cerrojo en memoria, pero con varias instancias del backend hace falta algo
-compartido, y ahí se usa un advisory lock de PostgreSQL por job. Dos servidores arrancando el
-mismo job a la misma hora no duplican la importación.
+Cada job lleva un cerrojo en memoria dentro del proceso y un advisory lock de PostgreSQL
+entre instancias. Dos servidores que arranquen la misma importación a la misma hora no la
+duplican.
 
 ### Qué queda registrado
 
@@ -55,10 +53,9 @@ del error si falló. Y por debajo, cada fichero deja la suya: qué dataset, qué
 modificación del fichero de origen, si se importó y con qué resultado. Un fichero que ya consta
 importado no se vuelve a procesar salvo que se fuerce.
 
-El panel muestra las tarjetas de los jobs y, al abrir una, la lista de sus ficheros con los
-fallos arriba, que es lo que se viene a buscar. La lista va en una petición aparte porque hay
-jobs que superan los 280 ficheros, y no tiene sentido pagar ese peso en un listado que se
-refresca solo.
+El panel muestra una tarjeta por job y, al abrir una, la lista de sus ficheros con los fallos
+arriba. La lista se pide aparte del listado de tarjetas, que se refresca solo, porque hay jobs
+que superan los 280 ficheros.
 
 Desde ahí también se lanza una importación a mano, con la opción de reimportar un fichero que
 ya constaba hecho.
