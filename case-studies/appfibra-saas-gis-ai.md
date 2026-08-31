@@ -253,36 +253,19 @@ antes salían bien.
 
 ## 6. La documentación fotográfica
 
-Las cuadrillas fotografían las instalaciones de fibra. Cada foto lleva un rótulo estampado con
-la empresa, el pueblo, el nodo, las coordenadas y la dirección. El pipeline lee ese rótulo,
-verifica la ubicación, la escribe en el EXIF de la foto, borra el rótulo y deja el conjunto
-documentado que se entrega al cliente. Lo que se entrega es la foto, así que las
-comprobaciones se hacen al producirla: no hay ninguna etapa posterior que rechace una
-coordenada equivocada.
+Las cuadrillas fotografían las instalaciones de fibra y cada foto lleva un rótulo estampado con
+la empresa, el pueblo, el nodo, la dirección y las coordenadas. Un microservicio en Python trata
+esas fotos: lee el rótulo, saca de él las coordenadas y las escribe en el EXIF, o al revés,
+resuelve la dirección contra Places y tablas de datos locales y estampa el rótulo corregido.
+Después renombra los ficheros según la nomenclatura que pida el cliente, tomándola de un Excel
+o un CSV de referencia, y borra el rótulo cuando lo que se entrega tiene que ir limpio.
 
-El operador lanza un trabajo sobre una carpeta y ve una fila por foto: qué se leyó del rótulo,
-qué ubicación se resolvió, con qué precisión y qué queda pendiente. Los datos que faltan se
-piden foto a foto, no por carpeta, porque una misma carpeta puede tener fotos de calles
-distintas. El resultado del borrado del rótulo se revisa en pantalla antes de dar el trabajo
-por bueno.
+El operador lanza el trabajo sobre una carpeta y revisa el resultado foto a foto: qué se leyó,
+qué ubicación salió y con qué precisión. Los datos que faltan se piden por foto, porque una
+misma carpeta puede tener fotos de calles distintas.
 
-La precisión de la ubicación es explícita. El servicio de búsqueda de direcciones devuelve
-siempre una posición, y además el tipo de lugar con el que ha casado; ese tipo se traduce a
-precisión de portal, de calle o de pueblo, y llega hasta la pantalla. Una coordenada deducida
-del nombre de la carpeta se marca con un origen distinto para que no se confunda con una leída
-de la foto.
-
-Los trabajos de lote devuelven cuentas reales: cuántas fotos se miraron, cuántas se
-corrigieron, cuántas siguen pendientes y por qué. El estado tiene un solo dueño: el servicio
-que hace el trabajo lo escribe en la base de datos junto con un log numerado por evento, y el
-resto lo lee de ahí. El log sobrevive a cerrar la pestaña.
-
-El microservicio es Python con FastAPI y corre en el servidor de la empresa. En la nube quedan
-el OCR, la búsqueda de direcciones y el borrado del rótulo; la base de datos y los ficheros no
-salen de casa. El borrado usa un modelo alojado en Estados Unidos, y eso se registró como una
-decisión de residencia de datos, con su coste dicho y una condición escrita para revisarla.
-
-[Write-up completo](photodoc-silent-failures.md).
+[Write-up completo](photodoc-silent-failures.md), con el OCR, el geocoding y el borrado del
+rótulo en detalle.
 
 ## Qué más hay en la plataforma
 
