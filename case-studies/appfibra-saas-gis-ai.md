@@ -27,24 +27,72 @@ Debajo hay cuatro bloques de la plataforma contados en detalle. El trabajo de re
 
 ---
 
-## 1. Auditoría de cambios de las importaciones
+## 1. Las importaciones diarias y la auditoría de cambios
 
-Las importaciones diarias dejan un historial campo a campo. Por cada ejecución queda registrado qué columna de qué fila cambió, con el valor anterior y el nuevo.
+La mayoría de los datos de la plataforma no se teclean: entran solos, de madrugada, leyendo
+ficheros que generan sistemas de terceros. Diecisiete importaciones registradas, repartidas
+entre los tres clientes, cada una con sus datasets.
 
-Con eso se puede responder a un cliente que discute una cifra, con fecha y valor previo. Se puede ver la línea temporal de una dirección cruzando datasets, porque la clave se normaliza a una forma canónica común y el mismo home aparece aunque cada fichero de origen lo escriba distinto. Y un tercero que reescribe media tabla aparece como un pico de cambios en una ejecución concreta.
+### Cómo se ejecutan
 
-Las altas y las bajas guardan la fila entera en `jsonb`, así que un registro borrado se puede volver a consultar tal y como estaba.
+El horario no está en el código. Vive en una tabla, con la hora, la zona horaria y un
+interruptor de encendido por job, y se edita desde el panel de administración. Un proceso
+comprueba cada minuto qué toca y lanza lo que ha vencido, así que cambiar la hora de una
+importación es guardar un campo, no recompilar y desplegar.
 
-La definición de qué cuenta como cambio es de negocio y está en el propio mecanismo. Las columnas de fecha se comparan por día: un hito que pasa de las 16:10 a las 16:54 del mismo día no entra en el historial. El resto de columnas se comparan por texto normalizado.
+Las horas por defecto van escalonadas entre las 06:00 y las 09:00 para que las importaciones
+no se pisen entre ellas ni con el uso de la mañana.
+
+Que un job no se ejecute dos veces a la vez está resuelto en dos niveles: dentro de un mismo
+proceso basta un cerrojo en memoria, pero con varias instancias del backend hace falta algo
+compartido, y ahí se usa un advisory lock de PostgreSQL por job. Dos servidores arrancando el
+mismo job a la misma hora no duplican la importación.
+
+### Qué queda registrado
+
+Cada ejecución deja una fila con su estado, cuándo empezó, cuánto tardó, el mensaje y la clase
+del error si falló. Y por debajo, cada fichero deja la suya: qué dataset, qué ruta, la fecha de
+modificación del fichero de origen, si se importó y con qué resultado. Un fichero que ya consta
+importado no se vuelve a procesar salvo que se fuerce.
+
+El panel muestra las tarjetas de los jobs y, al abrir una, la lista de sus ficheros con los
+fallos arriba, que es lo que se viene a buscar. La lista va en una petición aparte porque hay
+jobs que superan los 280 ficheros, y no tiene sentido pagar ese peso en un listado que se
+refresca solo.
+
+Desde ahí también se lanza una importación a mano, con la opción de reimportar un fichero que
+ya constaba hecho.
+
+### La auditoría de cambios
+
+Además del resultado de cada ejecución, las importaciones dejan un historial campo a campo:
+qué columna de qué fila cambió, con el valor anterior y el nuevo.
+
+Con eso se puede responder a un cliente que discute una cifra, con fecha y valor previo. Se
+puede ver la línea temporal de una dirección cruzando datasets, porque la clave se normaliza a
+una forma canónica común y el mismo home aparece aunque cada fichero de origen lo escriba
+distinto. Y un tercero que reescribe media tabla aparece como un pico de cambios en una
+ejecución concreta.
+
+Las altas y las bajas guardan la fila entera en `jsonb`, así que un registro borrado se puede
+volver a consultar tal y como estaba.
+
+La definición de qué cuenta como cambio es de negocio y está en el propio mecanismo. Las
+columnas de fecha se comparan por día: un hito que pasa de las 16:10 a las 16:54 del mismo día
+no entra en el historial. El resto de columnas se comparan por texto normalizado.
 
 Dos límites de escritura:
 
-- Una importación que trae la foto completa del origen se aborta si va a borrar más del 20% de una tabla con 100 filas o más.
-- El registro es solo de altas. Un cambio anotado no se puede editar ni borrar después, y lo impide la base de datos.
+- Una importación que trae la foto completa del origen se aborta si va a borrar más del 20% de
+  una tabla con 100 filas o más.
+- El registro es solo de altas. Un cambio anotado no se puede editar ni borrar después, y lo
+  impide la base de datos.
 
-El historial de un home se consulta por un endpoint de administración, filtrable por dataset. El panel de importaciones muestra, por ejecución, cuántas filas entraron, cuántas cambiaron y con qué resultado.
+El historial de un home se consulta por un endpoint de administración, filtrable por dataset.
 
-El mecanismo no depende del dataset: se declara qué tabla, qué clave y qué columnas son fechas. Para un dataset sin clave única por fila la auditoría es por hash de contenido, y registra altas y bajas en lugar de cambios de campo.
+El mecanismo no depende del dataset: se declara qué tabla, qué clave y qué columnas son fechas.
+Para un dataset sin clave única por fila la auditoría es por hash de contenido, y registra
+altas y bajas en lugar de cambios de campo.
 
 ---
 
@@ -180,7 +228,7 @@ Esto son capacidades. Las decisiones están arriba.
 
 **Seguridad.** Spring Security sobre Keycloak/OAuth2, scopes de recurso a nivel de proyecto o ciudad, RLS de PostgreSQL para aislar clientes, CSRF en las mutaciones, CORS restringido en producción, auditoría de sesión y autenticación M2M entre el backend Java y dos servicios Python.
 
-**Operación.** Jobs programados con seguimiento por ejecución y paneles de operación sobre el pipeline de importación. Las métricas de negocio tienen una única implementación en base de datos: todos sus consumidores, incluidos los informes y las tools del agente, llaman a la misma función, así que corregir una definición se propaga desde un solo sitio.
+**Operación.** Las métricas de negocio tienen una única implementación en base de datos: todos sus consumidores, incluidos los informes y las tools del agente, llaman a la misma función, así que corregir una definición se propaga desde un solo sitio.
 
 **Documentación fotográfica.** OCR, geocoding y borrado de marcas de agua sobre fotos de campo, donde lo que se entrega al cliente *es* la foto. [Write-up aparte](photodoc-silent-failures.md).
 
