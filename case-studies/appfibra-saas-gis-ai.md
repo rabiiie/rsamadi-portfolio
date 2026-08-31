@@ -98,8 +98,15 @@ altas y bajas en lugar de cambios de campo.
 ### Quién entra
 
 Identidad federada con Keycloak/OAuth2. El JWT llega con roles, organización y módulos, y se
-convierte en autoridades en cada petición. Durante la migración convive una lista blanca de
-roles globales heredados, sin que el resto del código distinga el origen de cada autoridad.
+convierte en autoridades en cada petición.
+
+Los roles vienen de dos sitios. Los de cliente y módulo se leen de una tabla, que es su fuente
+única, y se expanden a la misma cadena de authority que la aplicación ya usaba, así que cambiar
+la fuente no obligó a tocar el código que comprueba permisos. Los globales se quedan en
+Keycloak: los de romper el cristal, unos pocos funcionales transversales, y los que quedan por
+migrar a roles de cliente y módulo. De esos, el converter solo acepta los de una lista blanca
+explícita, para que un rol rancio o metido a mano en Keycloak no entre. Abajo llega la misma
+cadena venga de donde venga.
 
 Los servicios internos también se autentican entre sí: el backend Java y los dos servicios
 Python no se conceden confianza por estar en la misma red.
