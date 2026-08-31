@@ -23,7 +23,7 @@ Después la empresa contrató desarrolladores para hacer la plataforma de seguim
 
 Lo que construí después empezó por el otro lado, por el dominio. Y creció a base de necesidades, no de elegir stack: primero Spring Boot con plantillas servidas, luego REST en cuanto metí tablas editables, y después la migración a React. Se lo enseñé a mi jefa y la empresa lo adoptó. Hoy lleva el control de fibra y producción, y alimenta otra aplicación de mantenimiento e instalaciones.
 
-Debajo hay cinco bloques de la plataforma contados en detalle. El trabajo de rendimiento tiene write-ups aparte: [navegador](measured-performance-diagnosis.md) y [servidor](capacity-and-database-performance.md). El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md). Los problemas que costaron encontrar están recogidos en [trampas conocidas](../trampas-conocidas.md).
+Debajo hay seis bloques de la plataforma contados en detalle. El trabajo de rendimiento tiene write-ups aparte: [navegador](measured-performance-diagnosis.md) y [servidor](capacity-and-database-performance.md). El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md). Los problemas que costaron encontrar están recogidos en [trampas conocidas](../trampas-conocidas.md).
 
 ---
 
@@ -249,6 +249,41 @@ antes salían bien.
 
 [Write-up completo](mcp-agents-semantic-tools.md).
 
+---
+
+## 6. La documentación fotográfica
+
+Las cuadrillas fotografían las instalaciones de fibra. Cada foto lleva un rótulo estampado con
+la empresa, el pueblo, el nodo, las coordenadas y la dirección. El pipeline lee ese rótulo,
+verifica la ubicación, la escribe en el EXIF de la foto, borra el rótulo y deja el conjunto
+documentado que se entrega al cliente. Lo que se entrega es la foto, así que las
+comprobaciones se hacen al producirla: no hay ninguna etapa posterior que rechace una
+coordenada equivocada.
+
+El operador lanza un trabajo sobre una carpeta y ve una fila por foto: qué se leyó del rótulo,
+qué ubicación se resolvió, con qué precisión y qué queda pendiente. Los datos que faltan se
+piden foto a foto, no por carpeta, porque una misma carpeta puede tener fotos de calles
+distintas. El resultado del borrado del rótulo se revisa en pantalla antes de dar el trabajo
+por bueno.
+
+La precisión de la ubicación es explícita. El servicio de búsqueda de direcciones devuelve
+siempre una posición, y además el tipo de lugar con el que ha casado; ese tipo se traduce a
+precisión de portal, de calle o de pueblo, y llega hasta la pantalla. Una coordenada deducida
+del nombre de la carpeta se marca con un origen distinto para que no se confunda con una leída
+de la foto.
+
+Los trabajos de lote devuelven cuentas reales: cuántas fotos se miraron, cuántas se
+corrigieron, cuántas siguen pendientes y por qué. El estado tiene un solo dueño: el servicio
+que hace el trabajo lo escribe en la base de datos junto con un log numerado por evento, y el
+resto lo lee de ahí. El log sobrevive a cerrar la pestaña.
+
+El microservicio es Python con FastAPI y corre en el servidor de la empresa. En la nube quedan
+el OCR, la búsqueda de direcciones y el borrado del rótulo; la base de datos y los ficheros no
+salen de casa. El borrado usa un modelo alojado en Estados Unidos, y eso se registró como una
+decisión de residencia de datos, con su coste dicho y una condición escrita para revisarla.
+
+[Write-up completo](photodoc-silent-failures.md).
+
 ## Qué más hay en la plataforma
 
 Esto son capacidades. Las decisiones están arriba.
@@ -256,8 +291,6 @@ Esto son capacidades. Las decisiones están arriba.
 **Seguridad.** Spring Security sobre Keycloak/OAuth2, scopes de recurso a nivel de proyecto o ciudad, RLS de PostgreSQL para aislar clientes, CSRF en las mutaciones, CORS restringido en producción, auditoría de sesión y autenticación M2M entre el backend Java y dos servicios Python.
 
 **Operación.** Las métricas de negocio tienen una única implementación en base de datos: todos sus consumidores, incluidos los informes y las tools del agente, llaman a la misma función, así que corregir una definición se propaga desde un solo sitio.
-
-**Documentación fotográfica.** OCR, geocoding y borrado de marcas de agua sobre fotos de campo, donde lo que se entrega al cliente *es* la foto. [Write-up aparte](photodoc-silent-failures.md).
 
 ## Arquitectura
 
