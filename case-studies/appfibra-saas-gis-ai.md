@@ -120,7 +120,7 @@ resolución de IP de cliente para la auditoría.
 La autorización decide, para cada usuario, a qué cliente entra, qué módulos ve, qué puede tocar
 dentro de cada uno y sobre qué obras. Son cuatro planos que se combinan:
 
-- **Cliente.** Un permiso concedido sobre los datos de un cliente no alcanza a los de otro.
+- **Cliente.** Antes de leer nada, se comprueba que el usuario tiene acceso al cliente cuyos datos pide.
 - **Módulo.** Seguimiento, GIS, informes, agentes, facturación, documentación fotográfica.
 - **Área dentro del módulo.** Cada tabla declara sus grupos de columnas y el permiso se concede por grupo, así que se puede editar el bloque de una fase de obra y solo ver el resto de la fila. Hay además columnas técnicas que ningún rol edita, declaradas en el modelo de cada tabla.
 - **Recurso.** El scope acota a proyectos concretos, o a ciudades según el cliente. Dos personas con el mismo rol ven filas distintas.
