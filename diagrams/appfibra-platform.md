@@ -7,7 +7,6 @@ De alto nivel y saneados. La idea es enseñar cómo encajan las piezas, no la im
 ```mermaid
 flowchart LR
     Web["Web de oficina"] --> API["Backend Spring Boot"]
-    Mobile["App de campo<br/>Capacitor + SQLite"] --> API
     API --> DB[("PostgreSQL / PostGIS")]
     API --> GIS["Servicios GIS<br/>importación, vector tiles, análisis"]
     API --> IAM["Keycloak / OAuth2<br/>scopes por recurso"]

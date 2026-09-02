@@ -7,10 +7,8 @@ El mapa, no la historia. El razonamiento detrás de cada decisión concreta est�
 ```mermaid
 flowchart TB
     Users["Usuarios"] --> Web["Web de oficina"]
-    Users --> Mobile["App de campo<br/>offline-first"]
 
     Web --> API["Backend Spring Boot"]
-    Mobile --> API
 
     API --> DB[("PostgreSQL / PostGIS")]
     API --> GIS["Importación GIS y tiles"]
@@ -28,7 +26,6 @@ flowchart TB
 - **Modelo de datos GIS de origen**, sobre PostgreSQL/PostGIS. No un esquema relacional al que se le añade geometría después.
 - **JPA/Hibernate para el CRUD sencillo** (autenticación), y **SQL nativo con JDBC para GIS e informes**, donde un ORM esconde justo los planes de ejecución que hay que tunear.
 - **Los números caros de estudio de obra se precalculan** en tablas por lotes, y no se calculan en cada petición: calcularlos al vuelo no aguanta los objetivos de usuarios concurrentes de la plataforma.
-- **El trabajo de campo es offline-first.** Las cuadrillas trabajan donde la cobertura no es fiable, así que las escrituras se encolan en el dispositivo y se sincronizan cuando vuelve la conexión.
 - **El GIS pasó de un cliente a tres sin reescritura**, porque los roles de capa y los resolvers son configurables por cliente y no están cableados al primero.
 - **Los servicios Java y Python se autentican entre sí con tokens M2M.** Ni secretos compartidos, ni endpoints internos abiertos por confianza.
 - **Lo que llega del sistema externo de partes es solo-altas y auditado**, así que un cambio hecho por un tercero aparece como una fila y no como una sobrescritura silenciosa.

@@ -41,14 +41,13 @@ Aquí tienes los write-ups de lo que he hecho, sin código propietario, sin dato
 
 ## Stack
 
-Java 17 · Spring Boot · Spring Security · Keycloak/OAuth2 · React · PostgreSQL · PostGIS · FastAPI · Python · Model Context Protocol (MCP) · Google Cloud Document AI · Google Gemini · Amazon Textract · Amazon Bedrock · MapLibre/Leaflet · Capacitor · SQLite · Power BI · GitHub Actions · Semgrep · Testcontainers · k6
+Java 17 · Spring Boot · Spring Security · Keycloak/OAuth2 · React · PostgreSQL · PostGIS · FastAPI · Python · Model Context Protocol (MCP) · Google Cloud Document AI · Google Gemini · Amazon Textract · Amazon Bedrock · MapLibre/Leaflet · Capacitor · Power BI · GitHub Actions · Semgrep · Testcontainers · k6
 
 ## Arquitectura, de un vistazo
 
 ```mermaid
 flowchart LR
     Web["Web de oficina"] --> API["Backend Spring Boot"]
-    Mobile["App de campo<br/>offline-first"] --> API
     API --> DB[("PostgreSQL / PostGIS")]
     API --> GIS["Importación GIS, tiles<br/>y análisis"]
     API --> IAM["Keycloak / OAuth2<br/>scopes por recurso"]
