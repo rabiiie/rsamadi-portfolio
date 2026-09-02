@@ -281,7 +281,7 @@ resuelve la dirección contra Places y tablas de datos de equipo de obra y estam
 Después renombra los ficheros: cinco nomenclaturas distintas, una por cliente, tres de ellas
 cruzando contra un Excel o un CSV de referencia.
 
-[Write-up completo](photodoc-silent-failures.md), con el OCR, el geocoding y el borrado del
+[Write-up completo](photodoc-ocr-geocoding.md), con el OCR, el geocoding y el borrado del
 rótulo en detalle.
 
 ---
