@@ -23,7 +23,7 @@ Después la empresa contrató desarrolladores para hacer la plataforma de seguim
 
 Lo que construí después empezó por el otro lado, por el dominio. Y creció a base de necesidades, no de elegir stack: primero Spring Boot con plantillas servidas, luego REST en cuanto metí tablas editables, y después la migración a React. Se lo enseñé a mi jefa y la empresa lo adoptó. Hoy lleva el control de fibra y producción, y alimenta otra aplicación de mantenimiento e instalaciones.
 
-Debajo hay seis bloques de la plataforma contados en detalle. El trabajo de rendimiento, [navegador y servidor](measured-performance.md), va aparte. El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md). Los problemas que costaron encontrar están recogidos en [trampas conocidas](../trampas-conocidas.md).
+Debajo hay siete bloques de la plataforma contados en detalle. El trabajo de rendimiento, [navegador y servidor](measured-performance.md), va aparte. El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md). Los problemas que costaron encontrar están recogidos en [trampas conocidas](../trampas-conocidas.md).
 
 ---
 

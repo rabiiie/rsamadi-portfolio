@@ -15,7 +15,7 @@ Cómo trabajo, con las cifras de cada cosa:
 
 - [Agentes de IA sobre MCP — tools en vez de text-to-SQL](case-studies/mcp-agents-semantic-tools.md)
 - [Documentación fotográfica — OCR, geocoding y borrado de marcas](case-studies/photodoc-silent-failures.md)
-- [Rendimiento medido — el navegador y el servidor del mismo problema](case-studies/measured-performance.md)
+- [Rendimiento y capacidad: diagnóstico en navegador y base de datos](case-studies/measured-performance.md)
 - [Pipeline de CI — qué comprobaciones pueden bloquear](case-studies/ci-pipeline-what-blocks.md)
 - [Trampas conocidas](trampas-conocidas.md)
 
