@@ -2,7 +2,7 @@
 
 > Write-up saneado: sin código propietario, sin credenciales y sin datos de cliente.
 
-## De qué va
+## Resumen
 
 El módulo de seguimiento de la plataforma FTTH es un conjunto de tablas editables: cientos de
 miles de registros, más de 40 columnas, edición en línea, agrupación, filtros, ordenación,
@@ -12,17 +12,32 @@ Nadie se había quejado. Quise saber qué aguantaba antes de que lo descubriera 
 negocio tenía además una pregunta sin respuesta medida: cuánta gente puede trabajar a la vez y
 qué máquina hace falta. La de producción tenía cuatro vCPU sin ninguna medición detrás.
 
-Hice las dos mitades: la del navegador y la del servidor. Instrumentación, mediciones, arreglos,
-y los mecanismos que quedaron montados para que no se repita.
+Perfilé e instrumenté las dos mitades del mismo problema, el navegador y la base de datos. Quité
+los cuellos de botella de repintado y las consultas caras, y dimensioné el hardware de producción
+con una prueba de carga en vez de con una estimación.
 
 ## Resultados
 
-- Pasar el ratón por la tabla: el recálculo de estilo baja del 45,7% al 16,1% del perfil, y la ocupación del hilo principal del 92,7% al 85,3%.
-- Guardar una fila: de 730 ms a 113 ms.
-- El histograma del historial: de 477.000 filas leídas en cada petición a un resumen diario de unas decenas.
-- Capacidad: todo en verde a 150 usuarios concurrentes, y los seis umbrales cruzados a 300, con 187 req/s. Con esa cifra se dimensionó la máquina de producción.
-- Un Web Worker borrado y el ADR que lo exigía —escrito por mí— corregido, después de medir que pierde en los cuatro tamaños de entrada probados.
-- Un resumen precalculado que no llegué a construir, porque medirlo primero dijo que no ganaba nada.
+- **Repintado.** Pasar el ratón por la tabla: el recálculo de estilo baja del 45,7% al 16,1% del perfil, y la ocupación del hilo principal del 92,7% al 85,3%.
+- **Escritura.** Guardar una fila: de 730 ms a 113 ms, quitando el trabajo por fila que se ejecutaba en cada guardado.
+- **Base de datos.** El histograma del historial pasa de leer 477.000 filas en cada petición a un resumen diario de unas decenas.
+- **Capacidad.** k6 en verde a 150 usuarios concurrentes, y el punto de saturación exacto a 300, con 187 req/s. Con esa cifra se dimensionó la máquina de producción, y la conclusión fue comprar núcleos y no ajustar parámetros.
+- **Un Web Worker borrado**, y el ADR que lo exigía —escrito por mí— corregido: medir dijo que serializar el payload con `structuredClone` cuesta unas diez veces más que el cálculo que iba a mover, en los cuatro tamaños probados.
+- **Un resumen precalculado que no llegué a construir**, porque medirlo primero dijo que no ganaba nada.
+
+## Decisiones de ingeniería
+
+- **Navegador.** Las 952 transiciones CSS simultáneas venían de declararlas en la celda y no en la fila, con 40 columnas multiplicando. Y el comparador de `React.memo` de la fila se dejaba fuera el flag de selección, que es un fallo de corrección disfrazado de lentitud.
+- **Base de datos.** El resumen diario lo mantiene un job programado y no el trigger de auditoría, para no devolverle al guardado el coste que le acababa de quitar; y recalcula días enteros en vez de avanzar una marca de agua por `id`, porque una secuencia no garantiza el orden de commit.
+- **CI.** Los planes de ejecución son tests: corren contra un contenedor PostGIS real y comprueban con `EXPLAIN (ANALYZE, BUFFERS)` que cada consulta crítica sigue usando su índice. Si alguien borra uno, el pull request se pone en rojo.
+
+**Herramientas.** Chrome DevTools · React DevTools Profiler · `EXPLAIN (ANALYZE, BUFFERS)` de
+PostgreSQL · k6 · Testcontainers · JUnit 5 · GitHub Actions. El detalle está
+[al final](#herramientas).
+
+---
+
+Lo que sigue es el desglose: por dónde se empieza un análisis así, y qué salió en cada paso.
 
 ## Por dónde se empieza
 
