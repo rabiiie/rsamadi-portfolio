@@ -25,34 +25,30 @@ Plataforma SaaS de ERP y TPV para la operativa de una farmacia, con usuarios rea
 - **`SELECT ... FOR UPDATE` sobre la venta.** Dos cajas finalizando la misma venta a la vez no pueden descontar stock dos veces.
 - **Idempotencia por bandera.** Si la venta ya está posteada, la segunda llamada no hace nada y lo dice. Un doble clic no duplica movimientos.
 - **Una venta cancelada no se puede finalizar**, comprobado explícitamente y no por descarte.
-- **La referencia del movimiento es la línea de venta, no el producto.** Eso es lo que permite que una misma línea consuma de varios lotes, que es como funciona FEFO de verdad: primero lo que antes caduca, aunque haya que partir la cantidad entre dos lotes.
+- **La referencia del movimiento es la línea de venta, no el producto.** Así una misma línea puede consumir de varios lotes, que es lo que exige FEFO: sale primero lo que antes caduca, aunque haya que partir la cantidad entre dos lotes.
 
 ---
 
-## 2. Leer albaranes de proveedor sin fiarse del OCR
+## 2. Lectura de albaranes de proveedor
 
-**Caso.** La introducción manual de las líneas de un albarán es la tarea más repetitiva de la compra. El objetivo es fotografiarlo y obtener las líneas.
+La introducción manual de las líneas de un albarán es la tarea más repetitiva de la compra. Se fotografía y el parser saca las líneas con Document AI, por prioridades y no por un único camino:
 
-**Diseño.** El parser usa Document AI y va por prioridades, no por un único camino:
-
-- **Primero las entidades**, que es lo más fiable, y **solo si superan un umbral de confianza**. Un valor con poca confianza no se acepta en silencio.
+- **Primero las entidades**, que es lo más fiable, y solo si superan un umbral de confianza. Por debajo de él el campo se marca para revisión en lugar de escribirse.
 - **Sin entidades, se recurre a la lectura de tablas**, con menor fiabilidad y marcada como tal.
 - **La referencia del producto se busca por varios sinónimos**, porque cada proveedor llama de otra forma a la misma columna.
 - **Los descuentos vienen en euros o en porcentaje**, indistintamente, y hay que calcular los importes que el albarán no trae.
 
-**Segunda vía en el navegador.** Para documentos escaneados sencillos hay una extracción de tablas con visión por computador en cliente, con OpenCV.js. Ahorra la llamada al servicio de nube cuando el documento no la necesita.
+Para documentos escaneados sencillos hay una segunda vía en el navegador: extracción de tablas con OpenCV.js, que ahorra la llamada al servicio de nube cuando el documento no la necesita.
 
 Un albarán mal leído no produce error, sino una línea de compra con cantidad incorrecta. De ahí el umbral de confianza y la revisión del operador antes de confirmar.
 
 ---
 
-## 3. Buscar producto en lenguaje natural sin montar embeddings
+## 3. Búsqueda de producto en lenguaje natural, sin embeddings
 
-**Caso.** El mostrador busca por la petición del cliente, no por el nombre exacto del catálogo.
+El mostrador busca por lo que pide el cliente, no por el nombre exacto del catálogo. Primero va una búsqueda full-text en la base de datos, que devuelve hasta 30 candidatos. Si no hay coincidencia literal, pasa una muestra del catálogo al modelo para que haga la selección semántica. Después se parsea la respuesta y **se vuelve a enriquecer con los datos reales de la base de datos**, para que lo que se muestre sea el producto real y no lo que el modelo haya reconstruido de memoria.
 
-**Implementación.** Primero una búsqueda full-text en la base de datos, que devuelve hasta 30 candidatos. Si no hay coincidencia literal, pasa una muestra del catálogo al modelo para que haga la selección semántica. Después se parsea la respuesta y **se vuelve a enriquecer con los datos reales de la base de datos**, para que lo que se muestre sea el producto de verdad y no lo que el modelo recuerde de él.
-
-**Decisión.** La alternativa era montar una búsqueda vectorial con embeddings. Para un catálogo de este tamaño no compensa: hay que generar los vectores, mantenerlos al día con cada alta y cada cambio de nombre, y montar el reindexado. El full-text ya lo resuelve casi siempre, y el modelo solo entra cuando el full-text no encuentra nada.
+La alternativa era montar una búsqueda vectorial con embeddings. Para un catálogo de este tamaño no compensa: hay que generar los vectores, mantenerlos al día con cada alta y cada cambio de nombre, y montar el reindexado. El full-text ya lo resuelve casi siempre, y el modelo solo entra cuando el full-text no encuentra nada.
 
 ---
 
