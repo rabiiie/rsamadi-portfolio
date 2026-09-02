@@ -1,14 +1,14 @@
-# Pipeline de CI — qué comprobaciones pueden bloquear
+# Pipeline de CI: qué comprobaciones bloquean
 
 > Write-up saneado: sin código propietario, sin credenciales y sin datos de cliente.
 
-## De qué va
+## Contexto
 
 Un repositorio políglota: backend Java 17 con Spring Boot, frontend React con Capacitor, dos servicios Python y el esquema completo de PostgreSQL/PostGIS. Un desarrollador. Usuarios en producción.
 
 De dónde partía: tres comprobaciones (escaneo de secretos, auditoría de dependencias de npm y una compilación con tests parcial), con cobertura desigual según el lenguaje, el esquema de base de datos fuera de todo control automático, y el despliegue hecho a mano.
 
-**La regla que ordena todo lo demás:** un pipeline no se mide por cuántos escáneres ejecuta, sino por si cualquier commit de la rama principal se puede desplegar sin intervención manual. Las comprobaciones cuyo resultado no sería interpretable todavía se aplazan:
+Criterio de diseño: el objetivo es que cualquier commit de la rama principal sea desplegable sin intervención manual, no acumular escáneres. Las comprobaciones cuyo resultado no sería interpretable todavía quedan aplazadas:
 
 - La cobertura se mide después de que el contexto de Spring arranque en CI. Cobertura calculada sobre un conjunto de tests que excluye el arranque de la aplicación describe otra aplicación.
 - Los tests de integración van después de tener migraciones versionadas, porque son las migraciones las que construyen el esquema que el test necesita.
@@ -20,7 +20,7 @@ De dónde partía: tres comprobaciones (escaneo de secretos, auditoría de depen
 
 | Comprobación | Modo | Por qué |
 |---|---|---|
-| Escaneo de secretos sobre todo el historial | tumba la ejecución | una credencial filtrada no es cuestión de grado |
+| Escaneo de secretos sobre todo el historial | tumba la ejecución | sin margen de tolerancia |
 | Auditoría de dependencias de producción (npm) | tumba la ejecución | superficie pequeña y conocida; cada hallazgo es accionable hoy |
 | Compilación y tests unitarios | tumba la ejecución | — |
 | Arranque del contexto de Spring contra un PostGIS real | tumba la ejecución | solo fue posible después de versionar el esquema |
@@ -28,21 +28,19 @@ De dónde partía: tres comprobaciones (escaneo de secretos, auditoría de depen
 | Vulnerabilidades de dependencias Java | informativo, programado | aparecen avisos nuevos sin que el código cambie |
 | Lint del frontend | informativo, temporal | 736 avisos preexistentes; endurece cuando estén triados |
 
-### 1.1 Lo nuevo entra en informativo, con una condición para endurecerlo
+### 1.1 Introducción de controles nuevos
 
-Una comprobación que bloquea desde el primer día en un repositorio con historia detiene el trabajo mientras se tría su ruido inicial, y la gente aprende a ignorarla. Así que los controles nuevos entran informativos y endurecen cuando su lista de hallazgos está vacía o justificada.
+Los controles nuevos entran en modo informativo y endurecen cuando su lista de hallazgos está vacía o justificada. Bloquear desde el primer día sobre un repositorio con historia detiene el trabajo durante el triaje del ruido inicial.
 
-El matiz que importa: el estado informativo lleva **una fecha o una condición**. Sin eso es permanente por defecto, y "informativo" se convierte en una excusa para siempre.
+Cada estado informativo lleva asociada una fecha o una condición de endurecimiento. Sin ellas el estado es permanente por defecto.
 
-La excepción: una comprobación que solo mira el diff de un pull request y no el código previo bloquea desde el principio, porque no produce ruido histórico.
+Excepción: una comprobación limitada al diff de un pull request bloquea desde el principio, al no producir ruido histórico.
 
-### 1.2 Hallazgos informativos no es lo mismo que herramienta informativa
+### 1.2 Atenuación del resultado, no de la herramienta
 
-El job de SAST **no** lleva `continue-on-error`. Que encuentre problemas no lo tumba, porque el escáner no se invoca en modo error. Que el escáner **no consiga ejecutarse**, sí.
+El job de SAST no lleva `continue-on-error`. Los hallazgos no tumban la ejecución porque el escáner no se invoca en modo error; un fallo de ejecución del escáner, sí.
 
-Con `continue-on-error` los dos casos se ven igual: rojo, e ignorado. Una mala configuración o un fallo de red habrían pasado desapercibidos indefinidamente, y el pipeline habría informado de que pasa SAST mientras no pasaba nada.
-
-Lo que se atenúa es **el resultado del análisis**, no **la salud de la herramienta**.
+Con `continue-on-error` ambos casos producen el mismo resultado ignorado, y una mala configuración o un fallo de red quedan indetectados mientras el pipeline informa de que SAST pasa.
 
 ---
 
@@ -56,20 +54,20 @@ El escaneo de secretos tiene la misma forma. Los hallazgos históricos se permit
 
 ---
 
-## 3. Los cimientos que había que poner primero
+## 3. Versionado del esquema
 
 El esquema no estaba versionado: unos setenta ficheros `.sql` sueltos en la raíz del repositorio, aplicados a mano, sin registro en ninguna parte del orden de aplicación, de si eran idempotentes ni del estado de cada entorno. Eso dejaba el job de arranque del contexto en informativo, porque el test necesita una base de datos con el esquema ya construido y no había forma automática de construirla, así que estaba directamente excluido de la ejecución.
 
-Cómo se puso la línea base, y cómo la verifiqué:
+Línea base y verificación:
 
 - Línea base generada con `pg_dump --schema-only` sobre una copia en contenedor, y después **verificada cargándola en una base de datos vacía**: 351 relaciones, 868 índices de usuario, 1.014 funciones, 424 restricciones, idénticas al origen y sin errores.
 - De 1.264 tablas, **1.002 las crea la aplicación en tiempo de ejecución**: tablas de staging por proyecto, particiones diarias de historial. Esas no son esquema y quedan fuera; incluirlas haría que la línea base creciera sola. Las tablas particionadas padre sí entran.
 - Los dos caminos verificados de punta a punta. Base vacía: la migración corre, construye el esquema y la validación de JPA lo acepta contra las entidades. Base existente: se registra una línea base y la migración **no** corre.
 - La imagen del contenedor de test es PostGIS y no `postgres` a secas, porque la línea base crea extensiones espaciales. Los esquemas de esas extensiones se crean con `IF NOT EXISTS` porque vienen con la imagen; los esquemas de la aplicación se crean **sin** esa cláusula, a propósito, para que una colisión de verdad falle a la vista.
 
-**Y una decisión que parece un bug hasta que la lees dos veces:** migrar no es un efecto secundario de arrancar. Las migraciones están desactivadas por defecto porque el usuario de base de datos con el que corre la aplicación no tiene permisos DDL, y no debe tenerlos. Aplicar migraciones es un paso de despliegue con sus propias credenciales, no algo que ocurra cada vez que alguien arranca la aplicación contra un servidor compartido.
+**Migración desacoplada del arranque.** Las migraciones están desactivadas por defecto porque el usuario de base de datos con el que corre la aplicación no tiene permisos DDL, y no debe tenerlos. Aplicar migraciones es un paso de despliegue con sus propias credenciales, no algo que ocurra cada vez que alguien arranca la aplicación contra un servidor compartido.
 
-**Dos hallazgos que salieron de esa verificación** y no tenían nada que ver con CI: una tabla particionada sin partición `DEFAULT`, y que el primer arranque en un entorno real escribiría una tabla de historial de migraciones. Los dos anotados antes de tocar nada.
+Dos hallazgos de esa verificación, ajenos a CI: una tabla particionada sin partición `DEFAULT`, y que el primer arranque en un entorno real escribiría una tabla de historial de migraciones. Los dos anotados antes de tocar nada.
 
 ---
 
@@ -77,14 +75,14 @@ Cómo se puso la línea base, y cómo la verifiqué:
 
 El contenedor que se montó para el test de arranque sirve además para que CI compruebe **cómo se ejecutan las queries**, no solo que la aplicación levanta.
 
-Los tests siembran filas suficientes para que el planificador se tome los índices en serio, y después comprueban con `EXPLAIN` que cada query crítica sigue usando el índice para el que se diseñó. Un índice borrado sin querer deja de ser un incidente de producción descubierto una tarde lenta y pasa a ser un pull request en rojo.
+Los tests siembran filas suficientes para que el planificador se tome los índices en serio, y después comprueban con `EXPLAIN` que cada query crítica sigue usando el índice para el que se diseñó. La eliminación accidental de un índice deja el pull request en rojo, en lugar de aparecer como degradación en producción.
 
-Dos cosas que conviene saber antes de copiar esto:
+Dos limitaciones:
 
 - `SET enable_seqscan = off` **encarece** los scans secuenciales, no los prohíbe. Sobre un fixture pequeño, un índice que falta sigue produciendo un scan secuencial y no un error, así que la comprobación tiene que leer el plan y el fixture tiene que ser lo bastante grande para ser representativo.
 - Estos tests son lentos y se seleccionan por tag de JUnit, así que la build rápida no los paga. Corren como job propio, y son deterministas para cada pull request, a diferencia de las mediciones de tiempo, que no lo son y van programadas.
 
-**El reparto importa: planes en cada pull request, tiempos en una ejecución programada.** Un plan es una propiedad de la query y es estable en cualquier máquina. Un tiempo es una propiedad de la máquina, y comprobarlo en runners compartidos produce exactamente ese rojo intermitente que enseña a la gente a ignorar el pipeline.
+Reparto: planes en cada pull request, tiempos en ejecución programada. El plan es propiedad de la query y estable en cualquier máquina; el tiempo depende del runner y en runners compartidos produce fallos intermitentes.
 
 ---
 
@@ -94,26 +92,24 @@ La fase de bajo coste se escribió dando por hecho que el escaneo de código, la
 
 | Lo planeado | El sustituto | Qué se perdió |
 |---|---|---|
-| Escaneo de código nativo de GitHub | Semgrep OSS | nada relevante — cubre Java y JavaScript, corre en el runner, no depende de la API de GitHub y se invoca con métricas desactivadas |
-| Revisión de dependencias | OWASP Dependency-Check | **no es equivalente** — escanea el árbol entero periódicamente en vez de bloquear el diff de un PR. El bloqueo previo al merge desaparece; a cambio, las dependencias transitivas de Maven tienen cobertura por primera vez |
+| Escaneo de código nativo de GitHub | Semgrep OSS | nada relevante: cubre Java y JavaScript, corre en el runner, no depende de la API de GitHub y se invoca con métricas desactivadas |
+| Revisión de dependencias | OWASP Dependency-Check | **no es equivalente**: escanea el árbol entero periódicamente en vez de bloquear el diff de un PR. El bloqueo previo al merge desaparece; a cambio, las dependencias transitivas de Maven tienen cobertura por primera vez |
 | Renovate | Dependabot | agrupa peor en un repositorio políglota; a cambio es nativo, gratis en repos privados, y su agrupación por ecosistema cubre los seis frentes: dos módulos Maven, npm, dos servicios Python y las propias actions del workflow |
 
 La protección de rama queda anotada como aplazada a la espera de un plan de pago, no descartada en silencio. Mientras no exista, "tumba la ejecución" significa que la ejecución se pone en rojo, no que el merge esté impedido mecánicamente.
-
-Escribir **qué se pierde** en cada sustitución vale tanto como hacerla. Si no, dentro de seis meses el pipeline parece que hace algo que no hace.
 
 ---
 
 ## 6. Control de coste
 
-- **Filtrado por rutas.** Un pull request que solo toca el frontend no compila Java. Implementado con salidas de job y condiciones `if`, y no con filtros de ruta a nivel de workflow: un job saltado por `if` cuenta como satisfecho para la protección de rama, mientras que uno saltado por filtro de ruta la deja esperando indefinidamente. Esa diferencia es fácil de equivocar y cara de depurar.
+- **Filtrado por rutas.** Un pull request que solo toca el frontend no compila Java. Implementado con salidas de job y condiciones `if`, y no con filtros de ruta a nivel de workflow: un job saltado por `if` cuenta como satisfecho para la protección de rama, mientras que uno saltado por filtro de ruta la deja esperando indefinidamente.
 - **Concurrencia con cancelación en curso solo en pull requests.** En la rama principal y en la ejecución programada el job termina, porque su resultado *es* el historial de esa rama.
 - **El escaneo lento va programado.** Descargar la base de datos de vulnerabilidades entera lleva casi una hora y no dice nada nuevo sobre un cambio de código. Se dispara en push, semanalmente por cron, y a mano cuando hace falta.
 - **Se genera un SBOM en cada build** y se guarda como artefacto, que es lo que convierte una futura política de licencias en un cambio de configuración y no en un proyecto.
 
 ---
 
-## Dónde está hoy
+## Estado actual
 
 Los cimientos y los controles de bajo coste están en verde y funcionando. Las fases aplazadas, ordenadas por la misma regla: tests de frontend empezando por la lógica que resuelve la autorización, lint y auditoría de dependencias para los servicios Python, cobertura, reglas de arquitectura que hagan cumplir decisiones que hoy solo viven en prosa, entrega automatizada a un entorno de pruebas, y firma y procedencia de artefactos.
 

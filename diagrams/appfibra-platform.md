@@ -1,6 +1,6 @@
 # Diagramas de la plataforma AppFibra
 
-De alto nivel y saneados. La idea es enseñar cómo encajan las piezas, no la implementación.
+Vista de alto nivel, saneada: cómo encajan las piezas, sin detalle de implementación.
 
 ## Arquitectura de la plataforma
 

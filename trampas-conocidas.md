@@ -1,7 +1,7 @@
 # Trampas conocidas
 
-Problemas que costaron encontrar, con la causa y lo que hay que mirar para no repetirlos.
-Agrupados por área, porque casi todos vuelven a aparecer cuando se construye algo parecido.
+Problemas que costaron encontrar, con su causa y la comprobación que los detecta. Agrupados
+por área.
 
 ## GIS y caché
 
@@ -40,10 +40,9 @@ siguiente.
 **Causa.** La lista de módulos existía escrita a mano en nueve sitios: las reglas de rutas del
 backend, el catálogo de permisos, el mapa de portadas, el de pestañas, la validación del panel
 de administración, los grupos de roles del frontend, el registro de módulos de la interfaz, las
-reglas de asignación de recursos y la navegación. Ninguno era un fallo de programación: los
-nueve estaban bien escritos y funcionaban el día que se escribieron. El fallo es tener nueve
-copias de la misma lista, porque solo se descubre que una se quedó atrás cuando alguien usa
-justo ese camino.
+reglas de asignación de recursos y la navegación. Ninguna de las nueve estaba mal escrita. El
+defecto es la duplicación: una copia desactualizada solo se detecta al recorrer ese camino
+concreto.
 
 **Solución.** Un catálogo como fuente única y un único punto que responde si un usuario entra a
 un módulo de un cliente. Cada controlador declara su módulo en una anotación, así que la
@@ -52,9 +51,8 @@ un contador de controladores sin declarar que solo puede bajar, y comprobaciones
 nombre usado existe en el catálogo y de que cada módulo concedible lleva a una pantalla.
 
 **Qué mirar la próxima vez.** Contar cuántas veces está escrita la misma lista antes de añadirle
-una entrada. Y desconfiar de un permiso que se puede conceder: que la pantalla de administración
-lo ofrezca no demuestra que ningún endpoint lo consulte. Un grant que no mira nadie es peor que
-no tenerlo, porque parece concedido.
+una entrada. Que la pantalla de administración ofrezca un permiso no demuestra que
+ningún endpoint lo consulte: un permiso que nadie lee aparenta estar concedido.
 
 **Qué queda pendiente.** La migración va módulo a módulo. El contador dice cuántos controladores
 siguen decidiéndose por la vía antigua.
@@ -62,9 +60,9 @@ siguen decidiéndose por la vía antigua.
 ### El permiso se comprobaba en un sitio y se pintaba desde otro
 
 **Síntoma.** Un usuario con permiso de lectura sobre unas obras, y con un grupo de columnas
-concedido, veía esas celdas editables. Escribía, guardaba, y recibía un 403. Desde fuera parecía
-que el permiso de arriba —el grupo de columnas— mandaba sobre el de abajo —el nivel del recurso—,
-cuando en realidad mandaba uno en lo que se veía y otro en lo que se podía.
+concedido, veía esas celdas editables. Escribía, guardaba, y recibía un 403. Aparentemente el grupo de
+columnas prevalecía sobre el nivel del recurso; en realidad uno decidía lo visible y otro lo
+permitido.
 
 **Causa.** El endpoint que le dice al cliente qué puede hacer devuelve dos cosas: un flag de
 cabecera y un mapa de booleanos por grupo de columnas. El flag cruzaba el grupo con el nivel del
@@ -78,9 +76,8 @@ lectura no abre el grupo, nivel de edición sí, y el nivel de edición no conce
 se tiene.
 
 **Qué mirar la próxima vez.** El dato que decide si algo se puede hacer y el que decide si se
-ofrece tienen que salir del mismo cálculo. Un endpoint de capacidades que devuelve varias formas
-de la misma respuesta —un flag, un mapa, una lista— es una invitación a que solo una de ellas se
-mantenga al día, y la interfaz elige la que le viene bien.
+ofrece deben salir del mismo cálculo. Un endpoint de capacidades que devuelve la misma respuesta
+en varias formas (flag, mapa, lista) tiende a mantener actualizada solo una.
 
 **Por qué no se vio antes.** Todos los usuarios eran administradores, y un administrador pasa las
 dos comprobaciones. Un permiso reducido no se prueba solo: hay que fabricarlo.
@@ -99,10 +96,9 @@ tiempo; los que se habían desviado eran sus consumidores.
 del usuario, y la pantalla a la que entra. El frontend pinta eso y no deriva accesos por su
 cuenta. Añadir una familia de permisos pasó a ser tocar un único mapa en el servidor.
 
-**Qué mirar la próxima vez.** Una regla de autorización calculada en el cliente es una segunda
-implementación de algo que el servidor ya sabe, y es la que se queda atrás, porque la que rompe
-en producción es la otra. Una unión de nombres de rol escrita a mano en el frontend es un bug
-con fecha pendiente.
+**Qué mirar la próxima vez.** Una regla de autorización calculada en el cliente duplica lo que el
+servidor ya resuelve, y es la copia que se desactualiza. Una unión de nombres de rol escrita a
+mano en el frontend es un defecto pendiente de manifestarse.
 
 ### La columna existía y las consultas no la miraban
 
@@ -117,26 +113,25 @@ por delante del código, y el caso solo aparece cuando alguien tiene dos módulo
 distintos, que es raro mientras todo el mundo es administrador.
 
 **Solución.** Una única función decide si un permiso aplica a la pregunta, con dos reglas de
-compatibilidad escritas a propósito: un permiso sin módulo vale para todo el cliente —es lo que
-eran todos antes de que existiera la columna, así que nada de lo ya asignado cambia—, y una
-pregunta que no distingue módulo cuenta cualquier permiso. Esta segunda es la que importa: si
-los permisos por módulo fueran invisibles ahí, un usuario parecería no tener ninguno y la regla
-antigua le abriría el cliente entero. No mirar concede, no restringe.
+compatibilidad escritas a propósito: un permiso sin módulo vale para todo el cliente (situación
+de todos los permisos anteriores a la columna, de forma que nada de lo asignado cambia), y una
+pregunta que no distingue módulo cuenta cualquier permiso. La segunda regla es la crítica: si los
+permisos por módulo fueran invisibles ahí, el usuario parecería no tener ninguno y la regla
+antigua le abriría el cliente entero. Omitir el filtro amplía el acceso, no lo restringe.
 
 **Qué mirar la próxima vez.** Cuando llega una columna nueva al esquema, buscar quién la lee, no
-quién la escribe. Una columna que solo se escribe es documentación con aspecto de control.
+quién la escribe. Una columna que solo se escribe no es un control.
 
 ## Datos e integraciones
 
 ### El mismo cliente con dos números
 
 **Síntoma.** Al llevar una aplicación de escritorio a la web, una inserción empezó a fallar por
-clave foránea. Ese error resultó ser el caso bueno.
+clave foránea. Ese error resultó ser el caso menos grave.
 
 **Causa.** El esquema heredado del escritorio numera sus propios clientes, aparte de los de la
-plataforma. De tres clientes, uno tenía un id que no existía al otro lado —el que daba el error,
-visible y ruidoso— y los otros dos tenían el mismo número en las dos tablas apuntando a clientes
-distintos. Esos no fallan: entran, y el registro queda facturado al cliente equivocado. Buscando
+plataforma. De tres clientes, uno tenía un id inexistente al otro lado (el que producía el error
+visible) y los otros dos tenían el mismo número en ambas tablas apuntando a clientes distintos. Esos no fallan: entran, y el registro queda facturado al cliente equivocado. Buscando
 esto apareció además el filtro por cliente de un informe comentado, con una nota al lado que
 decía que de momento no se filtraba para no vaciar resultados.
 
@@ -145,7 +140,7 @@ mismo texto en las dos tablas y único en la heredada. Nada que viva en el esque
 un identificador de la plataforma: se resuelve por código antes de entrar.
 
 **Qué mirar la próxima vez.** Cuando dos sistemas se juntan, comprobar si sus identificadores
-comparten espacio de numeración antes de pasarlos de uno a otro. Un id que existe en los dos
-lados y significa cosas distintas no da error: acierta en la fila equivocada. Y el fallo ruidoso
-suele ser el hermano pequeño de uno silencioso que lleva más tiempo ahí.
+comparten espacio de numeración antes de pasarlos de uno a otro. Un id presente en ambos
+lados con significados distintos no produce error: escribe en la fila equivocada. El fallo visible
+puede ser el síntoma menor de otro silencioso y más antiguo.
 

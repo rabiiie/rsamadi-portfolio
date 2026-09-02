@@ -1,8 +1,8 @@
-# AppFibra — SaaS GIS, agentes de IA y seguridad
+# AppFibra: SaaS GIS, agentes de IA y seguridad
 
 > Write-up saneado: sin código propietario, sin credenciales y sin datos de cliente. Los identificadores están generalizados.
 
-## De qué va
+## Contexto
 
 Plataforma SaaS para el despliegue de redes FTTH: GIS, operativa de campo, seguimiento de obra, informes, flujos documentales y análisis asistido por IA.
 
@@ -13,7 +13,7 @@ Plataforma SaaS para el despliegue de redes FTTH: GIS, operativa de campo, segui
 
 Las cifras de filas que aparecen más abajo son de cada dataset, no totales de la plataforma. Varias tablas cubren el mismo territorio (datos de red, contratos, activaciones), así que un número como 164.107 es el tamaño de una tabla importada.
 
-## Cómo empezó
+## Origen del proyecto
 
 La plataforma nació como proyecto personal. Por eso arriba pone *único desarrollador* y no *responsable de equipo*.
 
@@ -23,7 +23,7 @@ Después la empresa contrató desarrolladores para hacer la plataforma de seguim
 
 Lo que construí después empezó por el otro lado, por el dominio. Y creció a base de necesidades, no de elegir stack: primero Spring Boot con plantillas servidas, luego REST en cuanto metí tablas editables, y después la migración a React. Se lo enseñé a mi jefa y la empresa lo adoptó. Hoy lleva el control de fibra y producción, y alimenta otra aplicación de mantenimiento e instalaciones.
 
-Debajo hay siete bloques de la plataforma contados en detalle. El trabajo de rendimiento, [navegador y servidor](measured-performance.md), va aparte. El pipeline de entrega, [aquí](ci-pipeline-what-blocks.md). Los problemas que costaron encontrar están recogidos en [trampas conocidas](../trampas-conocidas.md).
+Write-ups relacionados: [rendimiento y capacidad](measured-performance.md), [pipeline de entrega](ci-pipeline-what-blocks.md) y [trampas conocidas](../trampas-conocidas.md).
 
 ---
 
@@ -33,7 +33,7 @@ La mayoría de los datos de la plataforma entran por importaciones automáticas 
 ficheros generados por sistemas de terceros. Hay diecisiete registradas, repartidas entre los
 tres clientes, cada una con sus datasets.
 
-### Cómo se ejecutan
+### Planificación y ejecución
 
 El horario vive en una tabla, con la hora, la zona horaria y un interruptor de encendido por
 job, y se edita desde el panel de administración. Un proceso comprueba cada minuto qué ha
@@ -46,7 +46,7 @@ Cada job lleva un cerrojo en memoria dentro del proceso y un advisory lock de Po
 entre instancias. Dos servidores que arranquen la misma importación a la misma hora no la
 duplican.
 
-### Qué queda registrado
+### Registro
 
 Cada ejecución deja una fila con su estado, cuándo empezó, cuánto tardó, el mensaje y la clase
 del error si falló. Y por debajo, cada fichero deja la suya: qué dataset, qué ruta, la fecha de
@@ -60,7 +60,7 @@ que superan los 280 ficheros.
 Desde ahí también se lanza una importación a mano, con la opción de reimportar un fichero que
 ya constaba hecho.
 
-### La auditoría de cambios
+### Auditoría de cambios
 
 Además del resultado de cada ejecución, las importaciones dejan un historial campo a campo:
 qué columna de qué fila cambió, con el valor anterior y el nuevo.
@@ -95,7 +95,7 @@ altas y bajas en lugar de cambios de campo.
 
 ## 2. Seguridad: autenticación y autorización
 
-### Quién entra
+### Autenticación
 
 Identidad federada con Keycloak/OAuth2. El JWT llega con roles, organización y módulos, y se
 convierte en autoridades en cada petición.
@@ -115,7 +115,7 @@ Alrededor: política de contraseñas, control de intentos de acceso, limitación
 CSRF en las mutaciones, CORS restringido en producción, registro de actividad de sesión y
 resolución de IP de cliente para la auditoría.
 
-### Qué puede ver y tocar
+### Autorización
 
 La autorización decide, para cada usuario, a qué cliente entra, qué módulos ve, qué puede tocar
 dentro de cada uno y sobre qué obras. Son cuatro planos que se combinan:
@@ -137,13 +137,13 @@ Sobre el scope:
 - Cada concesión admite fecha de fin, y a partir de ella deja de dar acceso por cualquier vía.
 - Existe un scope de cliente que actúa de comodín y se comprueba antes que el recurso concreto, así que "todas las ciudades de este cliente" es una fila.
 
-### Dónde se aplica
+### Puntos de aplicación
 
 - Un catálogo por familia como fuente única. Informes y agentes tienen el suyo y de él salen todos los derivados.
 - Un punto de comprobación por familia (cliente, recurso, informe, agente) que se ejecuta antes de resolver la consulta. Un agente sin acceso se rechaza sin llamar al modelo.
 - El scope entra en el SQL. No se filtra en memoria después de traer las filas.
 - `/api/session` devuelve los módulos, vistas, informes, agentes y acciones del usuario, y la pantalla a la que entra. El frontend pinta eso y no deriva accesos por su cuenta, así que añadir una familia de roles es tocar un único mapa en el servidor.
-- Row-level security en Postgres como segunda capa por debajo de la comprobación del backend.
+- Row-level security en Postgres sobre las tablas multicliente. No cuenta hoy como segunda barrera: la política abre cuando la variable de sesión de cliente llega vacía, y esa vía está pendiente de cerrar.
 
 ---
 
@@ -153,19 +153,19 @@ Son la pantalla principal de trabajo de la oficina: rejillas de cientos de miles
 
 Un usuario puede filtrar, ordenar, agrupar, esconder y reordenar columnas, fijar las que quiere tener siempre delante, cambiar la densidad de las filas, pintar con formato condicional, editar en línea celda a celda o por lotes, analizar con una tabla dinámica, exportar, y abrir el historial de cualquier fila.
 
-### Las vistas guardadas
+### Vistas guardadas
 
 Toda esa configuración se guarda como una vista con nombre, y una vista guarda **todo** lo que define lo que ves: filtro global, filtros por columna, ordenación, columnas visibles, su orden, densidad, agrupación, reglas de formato condicional, columnas fijadas y numeración de filas. Con su versión de formato, para que una vista guardada hace meses siga abriéndose cuando el formato cambie.
 
 El formato condicional viaja dentro de la vista. Si se quedara fuera, la vista restaurada no se parecería a la que se guardó.
 
-### La barra de mando
+### Barra de mando
 
-La barra sigue una regla: arriba va lo que tiene estado que hay que ver sin pulsarlo, que son la agrupación activa y los filtros puestos con su aspa para quitarlos; dentro del menú va lo que solo ejecuta una acción.
+En la barra queda visible lo que tiene estado: la agrupación activa y los filtros aplicados, con su aspa para retirarlos. El resto de comandos vive en el menú.
 
-Hay una paleta de comandos con `Ctrl+K`, y no sustituye al menú. En la paleta se busca escribiendo el nombre de la función, así que solo sirve a quien ya sabe que existe. El menú es el camino para descubrirla.
+Paleta de comandos con `Ctrl+K`, adicional al menú. La paleta exige conocer el nombre de la función; el menú es la vía de descubrimiento.
 
-### Editar entre varios sin pisarse
+### Edición concurrente
 
 - **Candados por celda, en tiempo real.** Al entrar en una celda se toma un candado que caduca en 25 segundos y se renueva mientras se está escribiendo. Quien la tenga cogida la ve marcada, y los demás saben que está ocupada antes de escribir en ella.
 - **Un solo temporizador consulta quién tiene cogida cada celda**, en lugar de que cada cliente pregunte por su cuenta.
@@ -173,9 +173,9 @@ Hay una paleta de comandos con `Ctrl+K`, y no sustituye al menú. En la paleta s
 - **Un conflicto no tumba el resto del guardado.** Se aplica lo que está limpio y se devuelven los conflictos aparte, con la respuesta marcada como parcial.
 - **Los permisos se comprueban fila a fila**, no por guardado. Lo que cae fuera del alcance del usuario vuelve identificado, sin cancelar lo demás.
 
-### Deshacer, después de guardar
+### Reversión posterior al guardado
 
-`Ctrl+Z` deshace lo que todavía no ha salido del navegador. Esto es lo otro: lo que pasa **después de guardar**, que es un problema distinto, porque un dato que ya han visto otros no se puede deshacer. Solo se puede escribir encima para restaurar el valor anterior.
+`Ctrl+Z` cubre lo que no ha salido del navegador. Esta sección trata la reversión posterior al guardado: un dato ya publicado no se anula, se sobrescribe con el valor anterior.
 
 Revertir es una escritura nueva, no una anulación: queda auditada con su autor y su hora, y pasa por el mismo bloqueo optimista que cualquier edición. El historial no se reescribe.
 
@@ -191,7 +191,7 @@ Entre el guardado y el momento de revertirlo pasa tiempo, y las filas dejan de e
 - **Las que otra persona ha modificado después.** Restaurar el valor anterior también borra lo que escribió esa persona, así que no se hacen solas: hay que pedirlo expresamente, sabiendo lo que se pisa.
 - **Las que están fuera del alcance de quien revierte.** No se pueden escribir, y forzar no cambia nada, porque no es una cuestión de quién escribió el último sino de permisos.
 
-Los dos últimos grupos van separados a propósito. Si se juntaran en un montón de "filas con problema", la pantalla ofrecería un botón de forzar que resuelve unas y no otras, y quien lo pulsa se queda sin saber por qué siguen quedando filas sin revertir.
+Los dos últimos grupos se presentan separados: agrupados bajo una única categoría de error, el botón de forzar resolvería unas filas y otras no, sin explicación visible del resto.
 
 La recuperación de la base de datos a un punto en el tiempo queda fuera de la aplicación: es una operación de sistemas, no una acción de usuario.
 
@@ -207,13 +207,13 @@ No todas las tablas admiten lo mismo: las que se derivan de otra fuente son de s
 
 La red se planifica y se construye sobre el mapa. Las geometrías viven en PostGIS y el visor del navegador es MapLibre.
 
-### Cómo entran los datos
+### Ingesta
 
 Los ficheros de proyecto llegan en SHP, GPKG y DXF. Se importan con GDAL a tablas de staging y de ahí a tablas unificadas por tipo de red, con los atributos guardados como `jsonb` a partir de la fila entera menos las columnas de geometría. Eso conserva atributos propios del origen, como la capa del DXF, sin declararlos uno a uno en el esquema.
 
 Cada importación queda versionada, así que se puede saber de qué entrega viene cada geometría.
 
-### Cómo se sirve el mapa
+### Servicio de teselas
 
 Dos caminos, según lo que se pinte:
 
@@ -222,7 +222,7 @@ Dos caminos, según lo que se pinte:
 
 El dato GIS cambia una vez al día, con el proceso nocturno, así que la caché tiene una vida larga y se invalida por proyecto cuando hay un recálculo de verdad. Las teselas salen con `ETag` y con cabeceras que permiten al proxy servirlas sin llegar a la aplicación; el `ETag` incluye la versión del proyecto, así que una regeneración las invalida sin purgar nada a mano.
 
-### Los números de obra
+### Indicadores de obra
 
 Los indicadores de construcción no se calculan en cada petición: se precalculan en tablas de estudio. El recálculo pasa por una cola guardada en la base de datos, no en memoria:
 
