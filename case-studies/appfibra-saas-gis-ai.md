@@ -2,14 +2,27 @@
 
 > Write-up saneado: sin código propietario, sin credenciales y sin datos de cliente. Los identificadores están generalizados.
 
-## Contexto
+Plataforma en producción con 3 clientes industriales, más de 200 municipios y más de 200.000
+homes cubiertos, y de 50 a 100 usuarios concurrentes.
+Diecisiete importaciones automáticas diarias que alimentan informes de cliente y facturación.
+Autorización hasta el nivel de obra: dos personas con el mismo rol ven filas distintas.
 
-Plataforma SaaS para el despliegue de redes FTTH: GIS, operativa de campo, seguimiento de obra, informes, flujos documentales y análisis asistido por IA.
+Mi papel: único desarrollador. Arquitectura, backend, frontend, modelo de datos, GIS, seguridad,
+despliegue y soporte en producción.
 
-- **Cobertura**: +200 municipios, +200.000 homes, 3 clientes industriales.
-- **Carga**: 50-100 usuarios concurrentes. El objetivo son 500.
-- **Mi papel**: único desarrollador. Arquitectura, backend, frontend, modelo de datos, GIS, seguridad, despliegue y soporte en producción.
+## Qué es y para qué se hizo
+
+Una plataforma SaaS para el despliegue de redes de fibra FTTH: GIS, seguimiento de obra,
+informes, flujos documentales y análisis asistido por IA.
+
+El trabajo de una empresa de despliegue está repartido entre el proyecto que manda el cliente,
+lo que ejecutan los técnicos en campo y lo que se factura después, y cada pieza vive en un
+fichero o en un sistema distinto. La plataforma junta las tres: importa lo que llega de
+terceros, lo pinta sobre el mapa, deja que la oficina lo edite y saca de ahí los informes y la
+facturación, con el rastro de quién cambió qué.
+
 - **De dónde vienen los datos**: la mayoría de los registros entran por jobs ETL diarios que leen ficheros generados por sistemas de terceros. Lo que sale alimenta informes de cliente y facturación.
+- **Carga**: 50-100 usuarios concurrentes. El objetivo son 500.
 
 Las cifras de filas que aparecen más abajo son de cada dataset, no totales de la plataforma. Varias tablas cubren el mismo territorio (datos de red, contratos, activaciones), así que un número como 164.107 es el tamaño de una tabla importada.
 
@@ -23,9 +36,16 @@ Después la empresa contrató desarrolladores para hacer la plataforma de seguim
 
 Lo que construí después empezó por el otro lado, por el dominio. Y creció a base de necesidades, no de elegir stack: primero Spring Boot con plantillas servidas, luego REST en cuanto metí tablas editables, y después la migración a React. Se lo enseñé a mi jefa y la empresa lo adoptó. Hoy lleva el control de fibra y producción, y alimenta otra aplicación de mantenimiento e instalaciones.
 
-Write-ups relacionados: [rendimiento y capacidad](measured-performance.md), [pipeline de entrega](ci-pipeline-what-blocks.md) y [trampas conocidas](../trampas-conocidas.md).
+## Decisiones de ingeniería
 
----
+- **Toda importación deja historial campo a campo**, con el valor anterior y el nuevo, para poder contestar a un cliente que discute una cifra y para ver cuándo un tercero reescribe media tabla.
+- **La autorización se combina en cuatro niveles** (cliente, módulo, grupo de columnas y obra), y el scope entra en el SQL. No se filtra en memoria después de traer las filas.
+- **Publicar un informe o un agente es una línea en su catálogo**, y de ahí salen el permiso, la entrada de módulo y el chip de asignación. El frontend no deriva accesos por su cuenta.
+- **Revertir es una escritura nueva y no una anulación**: queda auditada, pasa por el mismo bloqueo optimista, y las filas que otro ha tocado después se separan de las que no.
+- **Los indicadores de obra se precalculan** en tablas de estudio, con una cola en la base de datos y no en memoria, porque calcularlos en cada petición no aguanta el objetivo de usuarios concurrentes.
+- **El GIS es configurable por cliente**, así que pasó de uno a tres sin reescritura.
+
+Write-ups relacionados: [rendimiento y capacidad](measured-performance.md), [pipeline de entrega](ci-pipeline-what-blocks.md) y [trampas conocidas](../trampas-conocidas.md).
 
 ## 1. Las importaciones diarias y la auditoría de cambios
 
@@ -91,8 +111,6 @@ El mecanismo no depende del dataset: se declara qué tabla, qué clave y qué co
 Para un dataset sin clave única por fila la auditoría es por hash de contenido, y registra
 altas y bajas en lugar de cambios de campo.
 
----
-
 ## 2. Seguridad: autenticación y autorización
 
 ### Autenticación
@@ -144,8 +162,6 @@ Sobre el scope:
 - El scope entra en el SQL. No se filtra en memoria después de traer las filas.
 - `/api/session` devuelve los módulos, vistas, informes, agentes y acciones del usuario, y la pantalla a la que entra. El frontend pinta eso y no deriva accesos por su cuenta, así que añadir una familia de roles es tocar un único mapa en el servidor.
 - Row-level security en Postgres sobre las tablas multicliente. No cuenta hoy como segunda barrera: la política abre cuando la variable de sesión de cliente llega vacía, y esa vía está pendiente de cerrar.
-
----
 
 ## 3. Las tablas de seguimiento
 
@@ -201,8 +217,6 @@ El historial y la reversión están sobre la tabla de seguimiento de un cliente,
 
 No todas las tablas admiten lo mismo: las que se derivan de otra fuente son de solo lectura, y en las que no tienen columna de versión el guardado es el último que escribe. Está declarado en cada caso.
 
----
-
 ## 4. El GIS
 
 La red se planifica y se construye sobre el mapa. Las geometrías viven en PostGIS y el visor del navegador es MapLibre.
@@ -238,8 +252,6 @@ Los roles de capa y los resolvers son configuración por cliente, y los KPIs de 
 
 Los usuarios pueden además añadir sus propias capas sobre el mapa, con sus metadatos.
 
----
-
 ## 5. Los agentes
 
 Dos agentes de dominio responden preguntas de operación en lenguaje natural: cuántos homes hay
@@ -270,8 +282,6 @@ antes salían bien.
 
 [Write-up completo](mcp-agents-semantic-tools.md).
 
----
-
 ## 6. La documentación fotográfica
 
 Los técnicos de obra fotografían las instalaciones de fibra y cada foto lleva una marca de agua con
@@ -283,8 +293,6 @@ cruzando contra un Excel o un CSV de referencia.
 
 [Write-up completo](photodoc-ocr-geocoding.md), con el OCR, el geocoding y el borrado del
 rótulo en detalle.
-
----
 
 ## 7. Los partes de trabajo externos
 
