@@ -6,8 +6,8 @@
 
 Los técnicos de obra fotografían cada instalación de fibra que ejecutan. Esas fotos son parte del
 entregable: el cliente las pide como prueba de que la obra está hecha, con la ubicación correcta
-y con los ficheros nombrados como él dice. Cada foto lleva un rótulo estampado por la app de cámara con la
-empresa, el pueblo, el nodo, las coordenadas y la dirección.
+y con los ficheros nombrados como él dice. Cada foto lleva un rótulo que estampa la app de cámara
+con la empresa, el pueblo, el nodo, las coordenadas y la dirección.
 
 Prepararlas a mano no sale a cuenta. Llegan por lotes de cientos, con cuatro formatos de rótulo
 según la app de cámara que use cada técnico, cinco formas de nombrar los ficheros según el
@@ -19,9 +19,9 @@ automatiza PhotoDoc.
 1. Lee el rótulo de la foto con OCR.
 2. Saca de él las coordenadas y las escribe en el EXIF, o al revés: si la foto trae GPS y el rótulo no, completa el rótulo.
 3. Cuando no hay coordenadas, resuelve la dirección contra un geocoder y contra las tablas de datos de obra, y guarda con qué precisión la ha resuelto.
-4. Reescribe el rótulo cuando lo que pone no cuadra con la dirección real, y pide al operador que decida cuando las dos fuentes discrepan.
-5. Renombra los ficheros según la nomenclatura del cliente, cruzando contra un Excel o un CSV de referencia cuando hace falta.
-6. Borra el rótulo de la imagen para producir el juego de fotos limpias que se entrega.
+4. Reescribe el rótulo cuando lo que pone no cuadra con la dirección real, y cuando las dos lecturas no coinciden lo decide el operador.
+5. Renombra los ficheros como los pide cada cliente, cruzando contra un Excel o un CSV de referencia cuando hace falta.
+6. Borra el rótulo de la imagen, que es la versión que se entrega.
 
 **Con qué está hecho.** Microservicio en Python con FastAPI, sobre un Windows Server
 on-premise, con una instancia del módulo por hilo del pool. En la nube van OCR (Amazon
