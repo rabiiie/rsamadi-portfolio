@@ -85,3 +85,67 @@ mantenga al día, y la interfaz elige la que le viene bien.
 **Por qué no se vio antes.** Todos los usuarios eran administradores, y un administrador pasa las
 dos comprobaciones. Un permiso reducido no se prueba solo: hay que fabricarlo.
 
+### El frontend recalculaba permisos que el backend ya sabía
+
+**Síntoma.** Fallaba en las dos direcciones a la vez: usuarios a los que se les negaban pantallas
+que sí les tocaban, y enlaces de menú visibles que llevaban a un 403.
+
+**Causa.** Los guards de ruta, la navegación y la lógica de a qué pantalla entra cada usuario
+mantenían cada uno su propia unión de nombres de rol, escrita a mano. Cada vez que nacía una
+familia de permisos, esas listas no se actualizaban. El mapa del servidor estuvo bien todo el
+tiempo; los que se habían desviado eran sus consumidores.
+
+**Solución.** El endpoint de sesión devuelve los módulos, las vistas, los informes y las acciones
+del usuario, y la pantalla a la que entra. El frontend pinta eso y no deriva accesos por su
+cuenta. Añadir una familia de permisos pasó a ser tocar un único mapa en el servidor.
+
+**Qué mirar la próxima vez.** Una regla de autorización calculada en el cliente es una segunda
+implementación de algo que el servidor ya sabe, y es la que se queda atrás, porque la que rompe
+en producción es la otra. Una unión de nombres de rol escrita a mano en el frontend es un bug
+con fecha pendiente.
+
+### La columna existía y las consultas no la miraban
+
+**Síntoma.** A un usuario se le asignaban unas obras en un módulo y otras distintas en otro, y
+veía las dos listas en los dos sitios.
+
+**Causa.** La tabla de permisos por recurso tenía una columna de módulo desde el primer día, con
+su comentario en el esquema explicando que un valor nulo significa "todos los módulos de este
+cliente". La pantalla de administración la escribía. Las consultas que leen esos permisos no la
+filtraban, así que cualquier permiso de un cliente valía para todos sus módulos. El esquema iba
+por delante del código, y el caso solo aparece cuando alguien tiene dos módulos con recursos
+distintos, que es raro mientras todo el mundo es administrador.
+
+**Solución.** Una única función decide si un permiso aplica a la pregunta, con dos reglas de
+compatibilidad escritas a propósito: un permiso sin módulo vale para todo el cliente —es lo que
+eran todos antes de que existiera la columna, así que nada de lo ya asignado cambia—, y una
+pregunta que no distingue módulo cuenta cualquier permiso. Esta segunda es la que importa: si
+los permisos por módulo fueran invisibles ahí, un usuario parecería no tener ninguno y la regla
+antigua le abriría el cliente entero. No mirar concede, no restringe.
+
+**Qué mirar la próxima vez.** Cuando llega una columna nueva al esquema, buscar quién la lee, no
+quién la escribe. Una columna que solo se escribe es documentación con aspecto de control.
+
+## Datos e integraciones
+
+### El mismo cliente con dos números
+
+**Síntoma.** Al llevar una aplicación de escritorio a la web, una inserción empezó a fallar por
+clave foránea. Ese error resultó ser el caso bueno.
+
+**Causa.** El esquema heredado del escritorio numera sus propios clientes, aparte de los de la
+plataforma. De tres clientes, uno tenía un id que no existía al otro lado —el que daba el error,
+visible y ruidoso— y los otros dos tenían el mismo número en las dos tablas apuntando a clientes
+distintos. Esos no fallan: entran, y el registro queda facturado al cliente equivocado. Buscando
+esto apareció además el filtro por cliente de un informe comentado, con una nota al lado que
+decía que de momento no se filtraba para no vaciar resultados.
+
+**Solución.** El puente entre los dos espacios de numeración es el código del cliente, que es el
+mismo texto en las dos tablas y único en la heredada. Nada que viva en el esquema heredado recibe
+un identificador de la plataforma: se resuelve por código antes de entrar.
+
+**Qué mirar la próxima vez.** Cuando dos sistemas se juntan, comprobar si sus identificadores
+comparten espacio de numeración antes de pasarlos de uno a otro. Un id que existe en los dos
+lados y significa cosas distintas no da error: acierta en la fila equivocada. Y el fallo ruidoso
+suele ser el hermano pequeño de uno silencioso que lleva más tiempo ahí.
+
