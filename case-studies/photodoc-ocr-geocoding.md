@@ -2,27 +2,59 @@
 
 > Write-up saneado: sin código propietario, sin credenciales, sin nombres de cliente ni de localidad. Las mediciones son reales; los sitios están generalizados.
 
-## Contexto
+## Resumen
 
-Las cuadrillas fotografían las instalaciones de fibra. Cada foto lleva un rótulo estampado con empresa, pueblo, nodo, coordenadas y dirección. El pipeline lee ese rótulo, verifica la ubicación y la escribe en el EXIF de la foto; reescribe el rótulo cuando lo que pone no cuadra con la dirección, renombra los ficheros según la nomenclatura del cliente, y borra el rótulo para producir el conjunto documentado que se entrega.
+Las cuadrillas fotografían las instalaciones de fibra y cada foto lleva un rótulo estampado con
+empresa, pueblo, nodo, coordenadas y dirección. Un microservicio en Python lee ese rótulo,
+verifica la ubicación, la escribe en el EXIF, corrige el rótulo cuando no cuadra con la
+dirección, renombra los ficheros según la nomenclatura de cada cliente y borra el rótulo para
+producir el material que se entrega.
 
-- **Microservicio**: Python con FastAPI, en un Windows Server on-premise, con una instancia del módulo por hilo del pool.
-- **En la nube**: OCR, geocoding, extracción de campos e inpainting. La base de datos y los ficheros se quedan en casa.
-- **Consumidores**: el backend de Spring Boot y la interfaz React.
+El entregable es la propia foto. Una coordenada con 140 km de error y una correcta son
+indistinguibles en un listado de ficheros, y no hay ninguna etapa posterior que valide: o se
+comprueba al producir el dato, o no se comprueba.
 
-El entregable es la propia foto. Una coordenada con 140 km de error y una correcta son indistinguibles en un listado de ficheros, y no existe etapa posterior de validación: la comprobación tiene que ocurrir en el momento de producir el dato.
+## Resultados
+
+| | Antes | Después |
+|---|---|---|
+| Fotos con el rótulo leído entero (muestra de 27) | 1 | 27 |
+| Segunda muestra, con el reparto de banda corregido (21) | 6 | 21 |
+| Superficie de foto que tapa la máscara de borrado | 55% | 34% |
+| Coste de OCR por cada 400 fotos | 0,60 € | 1,20 € |
+
+- El geocoder devolvía una posición siempre, también cuando no encontraba la dirección. Ahora cada coordenada lleva su precisión (portal, calle o pueblo) y la posición sola no se acepta.
+- Un trabajo de renombrado terminaba como *completado* sin haber renombrado nada cuando faltaba el fichero de referencia. Ahora corta antes de empezar.
+- Cinco bugs de interfaz que se habían tratado por separado resultaron ser el mismo: el estado del trabajo vivía en tres sitios.
+- La comprobación de acceso comparaba el nombre del cliente contra su código, así que nunca casaba y solo dejaba un `WARN`. En la práctica no había autorización.
+
+## Decisiones de ingeniería
+
+- **Dos llamadas de OCR por foto en lugar de una.** El rótulo se lee mal a escala completa, así que la banda inferior se recorta y se envía aparte. Duplica el coste de OCR y es lo que sube la lectura de 1 de 27 a 27 de 27.
+- **La foto es la unidad, no la carpeta.** Una sola respuesta por carpeta habría sellado fotos de tres calles distintas con la misma coordenada, sin dar error.
+- **Dos fuentes independientes para la misma dirección**, el nombre del fichero y el rótulo. Si coinciden, la foto se aprueba sola; si discrepan, decide el operador sobre la imagen.
+- **La marca de agua se borra por renglones y no por rectángulo.** Con el 55% de la foto tapada el modelo se inventaba el fondo.
+- **Residencia de datos escalada al negocio**, no resuelta por ingeniería: el modelo que borra el rótulo solo existe en Estados Unidos y las marcas de agua llevan dirección postal y GPS.
+
+**Stack.** Python · FastAPI · Amazon Textract · Amazon Location Service · Amazon Bedrock ·
+Pillow · PostgreSQL · Spring Boot · React · EXIF/GPS. Detalle al final.
+
+**Cómo corre.** Microservicio Python sobre Windows Server on-premise, con una instancia del
+módulo por hilo del pool. En la nube van OCR, geocoding, extracción de campos e inpainting; la
+base de datos y los ficheros se quedan en casa. Lo consumen el backend de Spring Boot y la
+interfaz React.
 
 ---
 
-## 1. Pérdida de las dos últimas líneas del rótulo en el OCR
+## 1. El OCR perdía las dos últimas líneas del rótulo
 
-**Síntoma.** En fotos de 3060×4080, `DetectDocumentText` devolvía las líneas superiores (empresa, pueblo, nodo) y omitía sistemáticamente las dos últimas, coordenadas y dirección, que son las necesarias. Lectura sobre una muestra de 27 fotos: 1 de 27.
+En fotos de 3060×4080, `DetectDocumentText` devolvía las líneas de arriba (empresa, pueblo,
+nodo) y se dejaba las dos últimas, que son las que hacen falta: coordenadas y dirección. Sobre
+una muestra de 27 fotos, 1 de 27. No es calidad del motor sino resolución relativa: a escala de
+foto completa esas líneas ocupan pocos píxeles.
 
-**Causa.** Resolución relativa, no calidad del motor: a escala de foto completa esas líneas ocupan pocos píxeles.
-
-**Corrección.** Recorte de la banda inferior enviado como segunda llamada, fundiendo las líneas devueltas con el texto completo. Sobre la misma muestra: 27 de 27.
-
-Cuatro mediciones adicionales durante la implementación:
+La banda inferior se recorta y se manda como segunda llamada, fundiendo lo que devuelve con el
+texto completo. Sobre la misma muestra, 27 de 27. Cuatro cosas que salieron al medirlo:
 
 **Lo que manda es el área del recorte, no el margen.** Medido sobre una foto: un recorte de 2017×1344 devolvía `748`; el mismo recorte a 2017×1018 devolvía `50.00748`. Por encima de aproximadamente 1,5 Mpx el servicio reduce la imagen y vuelve a comerse el primer carácter de cada renglón. El alto de la banda se calcula ahora contra ese presupuesto.
 
@@ -40,9 +72,9 @@ Cuatro mediciones adicionales durante la implementación:
 
 ---
 
-## 2. El geocoder no reporta la ausencia de coincidencia
+## 2. El geocoder no avisa cuando no encuentra la dirección
 
-**Síntoma.** El servicio de búsqueda siempre devuelve una posición. Medido contra los datos de un pueblo:
+El servicio de búsqueda devuelve una posición siempre. Medido contra los datos de un pueblo:
 
 | Consulta | Qué devuelve | Error |
 |---|---|---|
@@ -53,9 +85,9 @@ Cuatro mediciones adicionales durante la implementación:
 
 Los cuatro casos superan el filtro de plausibilidad geográfica. Una guarda por distancia contra el centro del pueblo detecta los dos últimos y falla en el caso crítico: un número de portal inexistente cae dentro del radio del pueblo y se acepta.
 
-**Impacto.** Esa coordenada se escribe en el EXIF de la foto y de ahí pasa al informe del cliente. Una dirección mal tecleada acaba documentada como ubicación real.
+Esa coordenada se escribe en el EXIF de la foto y de ahí pasa al informe del cliente. Una dirección mal tecleada acaba documentada como ubicación real.
 
-**Corrección.** El error de diseño era pedir únicamente una posición, cuando el servicio devuelve además un tipo de lugar que indica qué parte de la consulta ha casado. Ahora se conserva y se traduce a una precisión explícita (portal, calle o pueblo) que llega hasta la pantalla del operador. La posición sola no se acepta nunca. La guarda por distancia se mantiene: en un pueblo descartó 3 de 17 carpetas.
+El error de diseño era pedir únicamente una posición, cuando el servicio devuelve además un tipo de lugar que indica qué parte de la consulta ha casado. Ahora se conserva y se traduce a una precisión explícita (portal, calle o pueblo) que llega hasta la pantalla del operador. La posición sola no se acepta nunca. La guarda por distancia se mantiene: en un pueblo descartó 3 de 17 carpetas.
 
 ---
 
@@ -116,11 +148,11 @@ del recuento: no son fotos del cliente y contarlas infla el total.
 
 ## 5. Estado del trabajo y resultados de lote
 
-**Problema A: ausencia de resultados de lote.** La capa de servicio devolvía una cadena fija de éxito y la función de debajo ni siquiera devolvía sus estadísticas. Una ejecución podía terminar, reportar que fue bien y haber escrito **cero** coordenadas, sin forma de distinguirla de una que las corrigió todas.
+**El lote no devolvía cifras.** La capa de servicio devolvía una cadena fija de éxito y la función de debajo ni siquiera devolvía sus estadísticas. Una ejecución podía terminar, reportar que fue bien y haber escrito **cero** coordenadas, sin forma de distinguirla de una que las corrigió todas.
 
-**Corrección.** Las operaciones de lote devuelven cuentas reales: cuántas miró, cuántas corrigió, cuántas siguen pendientes y por qué. Y la interfaz enseña una fila por foto, no un resumen.
+Ahora las operaciones de lote devuelven cuentas reales: cuántas miró, cuántas corrigió, cuántas siguen pendientes y por qué. Y la interfaz enseña una fila por foto, no un resumen.
 
-**Problema B: estado replicado en tres sitios.** La memoria del microservicio, una tabla de trabajos y el navegador, con dos bucles sincronizándolos. De esa única duplicación salían cinco fallos distintos:
+**El estado vivía en tres sitios.** La memoria del microservicio, una tabla de trabajos y el navegador, con dos bucles sincronizándolos. De esa única duplicación salían cinco fallos distintos:
 
 - `Running` mostrado junto a `completed`
 - trabajos correctos marcados como `Failed` al reiniciar el microservicio
@@ -130,17 +162,17 @@ del recuento: no son fotos del cliente y contarlas infla el total.
 
 Cinco manifestaciones de un único defecto, tratadas hasta entonces como bugs independientes.
 
-**Corrección.** Un único dueño: el servicio que hace el trabajo escribe su estado y una línea de log numerada por evento; el otro servicio lee. Se retiró el sondeo entre servicios y el relay de eventos: el navegador pide las líneas posteriores a la última que tiene. El log pasa además a sobrevivir al cierre de la pestaña, pérdida silenciosa que no estaba registrada como defecto.
+Ahora hay un único dueño: el servicio que hace el trabajo escribe su estado y una línea de log numerada por evento; el otro servicio lee. Se retiró el sondeo entre servicios y el relay de eventos: el navegador pide las líneas posteriores a la última que tiene. El log pasa además a sobrevivir al cierre de la pestaña, pérdida silenciosa que no estaba registrada como defecto.
 
 ---
 
 ## 6. Autorización sin efecto
 
-**Síntoma.** La comprobación anterior llamaba a una consulta de proyecto que pertenece a otra línea de producto, y que además no comprueba nada cuando el identificador llega nulo. En la práctica no había autorización.
+La comprobación anterior llamaba a una consulta de proyecto que pertenece a otra línea de producto, y que además no comprueba nada cuando el identificador llega nulo. En la práctica no había autorización.
 
-**Defecto detectado al rehacerla.** La tabla de clientes guarda el nombre visible y el código en columnas distintas. La comprobación recibía el **nombre** y lo comparaba contra el **código**. Nunca casaban, así que se caía por el camino de en medio y lo único que quedaba era un `WARN` en el log. Los tests pasaban y la pantalla funcionaba, pero no había ningún control.
+**El defecto que apareció al rehacerla.** La tabla de clientes guarda el nombre visible y el código en columnas distintas. La comprobación recibía el **nombre** y lo comparaba contra el **código**. Nunca casaban, así que se caía por el camino de en medio y lo único que quedaba era un `WARN` en el log. Los tests pasaban y la pantalla funcionaba, pero no había ningún control.
 
-**Corrección.** El código de cliente se resuelve en el servidor a partir del identificador, y nunca se acepta del navegador.
+El código de cliente se resuelve ahora en el servidor a partir del identificador, y nunca se acepta del navegador.
 
 **Dos decisiones relacionadas:**
 
@@ -151,7 +183,7 @@ Cinco manifestaciones de un único defecto, tratadas hasta entonces como bugs in
 
 ## 7. Residencia de datos: decisión de negocio
 
-**Restricción.** Borrar el rótulo es la función que más le importa al negocio, y el modelo que lo hace solo existe en regiones de Estados Unidos. El anterior, alojado en Europa, está en fin de vida y cerrado a clientes nuevos, y elegirlo habría repetido un fallo que ya está en producción, que es montar un pipeline sobre un modelo que luego retiran. Y recortar el trozo antes de enviarlo no resuelve nada: el recorte **es** la zona de la dirección.
+Borrar el rótulo es la función que más le importa al negocio, y el modelo que lo hace solo existe en regiones de Estados Unidos. El anterior, alojado en Europa, está en fin de vida y cerrado a clientes nuevos, y elegirlo habría repetido un fallo que ya está en producción, que es montar un pipeline sobre un modelo que luego retiran. Y recortar el trozo antes de enviarlo no resuelve nada: el recorte **es** la zona de la dirección.
 
 **La decisión.** Se registró como decisión de residencia de datos y no como problema técnico: con el coste dicho (las marcas de agua llevan dirección postal, GPS, altitud y hora), tomada por quien es dueño de esa decisión, y con una condición escrita para revisarla si el producto se comercializa o se abre a más clientes. El resto de servicios se quedan en la región europea.
 
