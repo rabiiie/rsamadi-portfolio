@@ -2,6 +2,16 @@
 
 > Write-up saneado: sin código propietario, sin credenciales, sin nombres de cliente ni de localidad. Las mediciones son reales; los sitios están generalizados.
 
+## Impacto
+
+El proceso automático que trata las fotos que entregan las cuadrillas en campo leía 1 de cada
+27, y cuando no encontraba una dirección rellenaba una ubicación falsa sin avisar. Todo eso
+acababa en el material que se entrega al cliente.
+
+- **Calidad del dato.** La lectura automática del rótulo pasa de 1 de 27 a 27 de 27 sobre la misma muestra, y de 6 de 21 a 21 de 21 sobre una segunda. Las fotos que antes había que completar a mano se resuelven solas.
+- **Seguridad y datos verificados.** Corregidos dos fallos que no daban error: una comprobación de acceso que nunca casaba, y un geocoder que devolvía el centro del país a 140 km cuando no encontraba la dirección. Ahora cada coordenada lleva su precisión (portal, calle o pueblo) y la que no la tiene no se acepta.
+- **Coste controlado.** El borrado de la marca de agua con Amazon Bedrock baja del 55% al 34% de superficie tapada, que es lo que impide que el modelo se invente el fondo. El OCR pasa a costar el doble por foto, 1,20 € cada 400 en vez de 0,60 €, y esa es la contrapartida de la precisión de arriba.
+
 ## Resumen
 
 Las cuadrillas fotografían las instalaciones de fibra y cada foto lleva un rótulo estampado con
