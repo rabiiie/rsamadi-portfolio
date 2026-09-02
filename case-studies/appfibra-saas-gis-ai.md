@@ -4,7 +4,7 @@
 
 ## De qué va
 
-Plataforma SaaS web y móvil para el despliegue de redes FTTH: GIS, operativa de campo, seguimiento de obra, informes, flujos documentales y análisis asistido por IA.
+Plataforma SaaS para el despliegue de redes FTTH: GIS, operativa de campo, seguimiento de obra, informes, flujos documentales y análisis asistido por IA.
 
 - **Cobertura**: +200 municipios, +200.000 homes, 3 clientes industriales.
 - **Carga**: 50-100 usuarios concurrentes. El objetivo son 500.
@@ -121,8 +121,8 @@ La autorización decide, para cada usuario, a qué cliente entra, qué módulos 
 dentro de cada uno y sobre qué obras. Son cuatro planos que se combinan:
 
 - **Cliente.** Antes de leer nada, se comprueba que el usuario tiene acceso al cliente cuyos datos pide.
-- **Módulo.** Seguimiento, GIS, informes, agentes, facturación, documentación fotográfica.
-- **Área dentro del módulo.** Cada tabla declara sus grupos de columnas y el permiso se concede por grupo, así que se puede editar el bloque de una fase de obra y solo ver el resto de la fila. Hay además columnas técnicas que ningún rol edita, declaradas en el modelo de cada tabla.
+- **Módulo.** Tablas de Seguimiento, GIS, informes, agentes, facturación, documentación fotográfica.
+- **Área dentro del módulo.** Cada tabla declara sus grupos de columnas y el permiso se concede por grupo (tipo de obra), así que se puede editar el bloque de una fase de obra y solo ver el resto de la fila. Hay además columnas técnicas que ningún rol edita, declaradas en el modelo de cada tabla.
 - **Recurso.** El scope acota a proyectos concretos, o a ciudades según el cliente. Dos personas con el mismo rol ven filas distintas.
 
 A una subcontrata se le asignan sus obras y ve la plataforma acotada a ellas: listados, cuadros
@@ -284,18 +284,25 @@ cruzando contra un Excel o un CSV de referencia.
 [Write-up completo](photodoc-silent-failures.md), con el OCR, el geocoding y el borrado del
 rótulo en detalle.
 
-## Qué más hay en la plataforma
+---
 
-Esto son capacidades. Las decisiones están arriba.
+## 7. Los partes de trabajo externos
 
-**Operación.** Las métricas de negocio tienen una única implementación en base de datos: todos sus consumidores, incluidos los informes y las tools del agente, llaman a la misma función, así que corregir una definición se propaga desde un solo sitio.
+Los partes de trabajo los lleva otra aplicación de la empresa, y la plataforma trabaja contra
+ella en los dos sentidos. Hacia abajo mantiene un espejo local: cada sincronización baja todos
+los partes paginados, con sus 59 columnas, los compara campo a campo contra el espejo y registra
+altas, bajas y cambios en su propio historial, así que un cambio hecho por un tercero aparece
+como una fila y no como una sobrescritura silenciosa. Los cambios que caen dentro de las doce
+horas siguientes a una subida nuestra se atribuyen a esa subida, para no leerlos como movimiento
+ajeno, y la misma pareja campo→valor repetida en cientos de partes se marca como cambio masivo.
+Hacia arriba, la plataforma sube su tabla derivada, y antes de cada subida guarda una preimagen
+del estado anterior junto a la entrada del historial de subidas, para poder deshacerla.
 
 ## Arquitectura
 
 ```mermaid
 flowchart TB
     UI["Web React"] --> API["Backend Spring Boot"]
-    Field["App de campo<br/>Capacitor + SQLite"] --> API
     API --> DB[("PostgreSQL / PostGIS")]
     API --> GIS["Servicios GIS<br/>importación, tiles, análisis"]
     API --> IAM["Identidad y acceso<br/>Keycloak/OAuth2 + scopes"]
@@ -310,4 +317,4 @@ flowchart TB
 
 ## Stack
 
-Java 17 · Spring Boot · Spring Security · Keycloak/OAuth2 · React · PostgreSQL · PostGIS · FastAPI · Python · Model Context Protocol · MapLibre/Leaflet · Capacitor · SQLite · Power BI
+Java 17 · Spring Boot · Spring Security · Keycloak/OAuth2 · React · PostgreSQL · PostGIS · FastAPI · Python · Model Context Protocol · MapLibre/Leaflet · Power BI
