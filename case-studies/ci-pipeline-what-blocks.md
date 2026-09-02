@@ -22,7 +22,7 @@ Criterio de diseño: el objetivo es que cualquier commit de la rama principal se
 |---|---|---|
 | Escaneo de secretos sobre todo el historial | tumba la ejecución | una credencial filtrada se rota, no se valora |
 | Auditoría de dependencias de producción (npm) | tumba la ejecución | superficie pequeña y conocida; cada hallazgo es accionable hoy |
-| Compilación y tests unitarios | tumba la ejecución | — |
+| Compilación y tests unitarios | tumba la ejecución | sin build no hay artefacto que desplegar |
 | Arranque del contexto de Spring contra un PostGIS real | tumba la ejecución | solo fue posible después de versionar el esquema |
 | SAST | hallazgos informativos, fallo de la herramienta fatal | ver 1.2 |
 | Vulnerabilidades de dependencias Java | informativo, programado | aparecen avisos nuevos sin que el código cambie |
@@ -36,7 +36,7 @@ Cada estado informativo lleva asociada una fecha o una condición de endurecimie
 
 Excepción: una comprobación limitada al diff de un pull request bloquea desde el principio, al no producir ruido histórico.
 
-### 1.2 SAST: los hallazgos informan, la herramienta bloquea
+### 1.2 Tratamiento de errores frente a hallazgos en SAST
 
 El job de SAST no lleva `continue-on-error`. Los hallazgos no tumban la ejecución porque el escáner no se invoca en modo error; un fallo de ejecución del escáner, sí.
 
@@ -48,7 +48,7 @@ Con `continue-on-error` los dos casos salen igual y se ignoran igual, así que u
 
 Un hallazgo de dependencias se puede aceptar, pero cada aceptación lleva fecha de caducidad, y pasada esa fecha la build vuelve a fallar. Y una excepción que ya no corresponde a ningún aviso vivo también tumba la build, así que la lista no puede acumular entradas muertas.
 
-La política que va con eso: una excepción solo es admisible cuando se ha verificado que la superficie afectada no se usa. Si el aviso tiene arreglo, se arregla. Apagar el fuego, no desactivar la alarma.
+La política que va con eso: las vulnerabilidades conocidas se remedian, y solo se admite una excepción temporal cuando se ha verificado que la superficie de código afectada no se invoca.
 
 El escaneo de secretos tiene la misma forma. Los hallazgos históricos se permiten **por commit**, cada uno anotado con qué credencial era y la fecha en que se revocó, de modo que escanear todo el historial no bloquee cada ejecución mientras sigue cazando lo nuevo. La lista de rutas permitidas contiene solo directorios que no son código del proyecto: dependencias, artefactos de build, ficheros del IDE. Nunca fuentes: un secreto encontrado en el código se rota y se quita del fichero, no se silencia.
 
