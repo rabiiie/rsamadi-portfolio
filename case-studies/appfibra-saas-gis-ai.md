@@ -74,7 +74,7 @@ ejecución concreta.
 Las altas y las bajas guardan la fila entera en `jsonb`, así que un registro borrado se puede
 volver a consultar tal y como estaba.
 
-La definición de qué cuenta como cambio es de negocio y está en el propio mecanismo. Las
+Qué cuenta como cambio lo decide el negocio, y esa regla está dentro del propio mecanismo. Las
 columnas de fecha se comparan por día: un hito que pasa de las 16:10 a las 16:54 del mismo día
 no entra en el historial. El resto de columnas se comparan por texto normalizado.
 
@@ -82,8 +82,8 @@ Dos límites de escritura:
 
 - Una importación que trae la foto completa del origen se aborta si va a borrar más del 20% de
   una tabla con 100 filas o más.
-- El registro es solo de altas. Un cambio anotado no se puede editar ni borrar después, y lo
-  impide la base de datos.
+- El historial es append-only: un cambio anotado no se puede editar ni borrar después, y lo
+  impide la base de datos, no una comprobación en el código.
 
 El historial de un home se consulta por un endpoint de administración, filtrable por dataset.
 
@@ -109,7 +109,7 @@ explícita, para que un rol rancio o metido a mano en Keycloak no entre. Abajo l
 cadena venga de donde venga.
 
 Los servicios internos también se autentican entre sí: el backend Java y los dos servicios
-Python no se conceden confianza por estar en la misma red.
+Python se piden token, no se llaman a pelo por estar en la misma red.
 
 Alrededor: política de contraseñas, control de intentos de acceso, limitación de peticiones,
 CSRF en las mutaciones, CORS restringido en producción, registro de actividad de sesión y
@@ -118,7 +118,7 @@ resolución de IP de cliente para la auditoría.
 ### Autorización
 
 La autorización decide, para cada usuario, a qué cliente entra, qué módulos ve, qué puede tocar
-dentro de cada uno y sobre qué obras. Son cuatro planos que se combinan:
+dentro de cada uno y sobre qué obras. Se combinan cuatro niveles:
 
 - **Cliente.** Antes de leer nada, se comprueba que el usuario tiene acceso al cliente cuyos datos pide.
 - **Módulo.** Tablas de Seguimiento, GIS, informes, agentes, facturación, documentación fotográfica.
@@ -163,7 +163,7 @@ El formato condicional viaja dentro de la vista. Si se quedara fuera, la vista r
 
 En la barra queda visible lo que tiene estado: la agrupación activa y los filtros aplicados, con su aspa para retirarlos. El resto de comandos vive en el menú.
 
-Paleta de comandos con `Ctrl+K`, adicional al menú. La paleta exige conocer el nombre de la función; el menú es la vía de descubrimiento.
+Paleta de comandos con `Ctrl+K`, que no sustituye al menú: en la paleta hay que escribir el nombre de la función, así que solo sirve si ya sabes que existe.
 
 ### Edición concurrente
 
@@ -175,7 +175,7 @@ Paleta de comandos con `Ctrl+K`, adicional al menú. La paleta exige conocer el 
 
 ### Reversión posterior al guardado
 
-`Ctrl+Z` cubre lo que no ha salido del navegador. Esta sección trata la reversión posterior al guardado: un dato ya publicado no se anula, se sobrescribe con el valor anterior.
+`Ctrl+Z` cubre lo que no ha salido del navegador. Lo de aquí es lo otro: un dato que ya han visto otros no se anula, se sobrescribe con el valor anterior.
 
 Revertir es una escritura nueva, no una anulación: queda auditada con su autor y su hora, y pasa por el mismo bloqueo optimista que cualquier edición. El historial no se reescribe.
 
@@ -193,7 +193,7 @@ Entre el guardado y el momento de revertirlo pasa tiempo, y las filas dejan de e
 
 Los dos últimos grupos se presentan separados: agrupados bajo una única categoría de error, el botón de forzar resolvería unas filas y otras no, sin explicación visible del resto.
 
-La recuperación de la base de datos a un punto en el tiempo queda fuera de la aplicación: es una operación de sistemas, no una acción de usuario.
+El point-in-time recovery de la base de datos queda fuera de la aplicación: lo hace sistemas, no un usuario desde la pantalla.
 
 ### Cobertura
 
