@@ -6,6 +6,8 @@ Lectura automática del rótulo: de 1 de cada 27 fotos a 27 de 27.
 Coordenadas con 140 km de error que se escribían sin aviso: ya no se escriben.
 Coste: el doble de OCR por foto, 1,20 € por cada 400 en lugar de 0,60 €.
 
+En producción lleva procesadas más de 147.500 fotos.
+
 Mi papel: diseño e implementación del microservicio y de su integración con Spring Boot y React.
 Trabajo individual, sobre un sistema en producción.
 
@@ -32,8 +34,9 @@ Lo que hace, en orden:
 
 Está hecho con un microservicio en Python con FastAPI, sobre un Windows Server on-premise, con
 una instancia del módulo por hilo del pool. En la nube van OCR (Amazon Textract), geocodificación
-(Amazon Location Service), extracción de campos y borrado del rótulo (Amazon Bedrock); la base de
-datos y los ficheros se quedan en casa. Lo consumen el backend de Spring Boot y la interfaz React.
+(Amazon Location Service), detección de objetos (Amazon Rekognition), y extracción de campos y
+borrado del rótulo (Amazon Bedrock); la base de datos y los ficheros se quedan en casa. Lo
+consumen el backend de Spring Boot y la interfaz React.
 
 ## Qué estaba fallando
 
@@ -175,8 +178,9 @@ la dirección. Puede corregir los campos, mover el recuadro o girar la foto 90°
 deja el rótulo en el lateral y el recuadro no se encuentra, así que al girarla se rehace la
 lectura desde el OCR y el operador marca sobre la imagen buena.
 
-En las fotos aparecen metros y reglas, y sus números entraban en el texto que se parsea como
-dirección, así que el recorte de esos objetos va antes del filtrado y no después.
+En las fotos aparecen metros, reglas, carteles y etiquetas, y sus números entraban en el texto
+que se parsea como dirección. Amazon Rekognition los localiza y sus cajas se descartan del
+recorte, antes del filtrado y no después.
 
 Los campos se sacan en dos pasadas: primero expresiones regulares sobre el texto del rótulo, y lo
 que quede sin resolver va a un modelo en Bedrock, sobre el texto ya leído y no sobre la imagen.
@@ -254,7 +258,12 @@ nada: el recorte es la zona de la dirección.
 Se registró como decisión de residencia de datos y no como problema técnico: con el coste dicho,
 las marcas de agua llevan dirección postal, GPS, altitud y hora, tomada por quien es dueño de esa
 decisión, y con una condición escrita para revisarla si el producto se comercializa o se abre a
-más clientes. El resto de servicios se quedan en la región europea.
+más clientes.
+
+Hoy la decisión alcanza a más de lo previsto. Los cinco módulos AWS del servicio leen la misma
+variable de región, así que OCR, geocodificación y detección de objetos viajan a la misma región
+que el borrado del rótulo, y no a una europea. Separarlo es un cliente por servicio en lugar de
+una variable compartida, y está pendiente.
 
 Dos notas de operación. El modelo se invoca por perfil de inferencia y no aparece en el listado
 de modelos, solo en el de perfiles. Y una única llamada con una máscara que cubre todos los
@@ -287,5 +296,5 @@ y la de fechas solo aceptaba un separador.
 
 ## Stack
 
-Amazon Textract, Amazon Location Service, Amazon Bedrock, Python, FastAPI, Pillow, PostgreSQL,
-Spring Boot, React, metadatos EXIF/GPS.
+Amazon Textract, Amazon Location Service, Amazon Rekognition, Amazon Bedrock, Python, FastAPI,
+Pillow, PostgreSQL, Spring Boot, React, metadatos EXIF/GPS.
