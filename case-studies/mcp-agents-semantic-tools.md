@@ -24,7 +24,7 @@ Dos agentes las responden en lenguaje natural, contra los datos reales y no cont
 - **Agente A**: superficie SQL restringida, preexistente. Se le añadió un control de admisión.
 - **Agente B**: 19 tools a medida sobre Model Context Protocol, que envuelven las mismas vistas que leen los informes oficiales.
 - **Orquestación**: Python con FastAPI, respuestas en streaming por SSE. El servidor de tools es Spring Boot con el MCP server de Spring AI sobre SSE.
-- **Autenticación**: Token Relay con JWT de Keycloak.
+- **Autenticación**: Token Relay con JWT de Keycloak. Los modelos se sirven por Amazon Bedrock.
 
 ## Qué había que resolver
 
@@ -128,4 +128,4 @@ El diseño se rehízo una vez. La primera versión apuntaba a tablas crudas. Al 
 
 ## Stack
 
-Model Context Protocol · MCP server de Spring AI (SSE) · Spring Boot · Spring Security OAuth2 Resource Server · Keycloak (Token Relay) · FastAPI · Python · anyio · Google Gemini · vistas semánticas en PostgreSQL
+Model Context Protocol · MCP server de Spring AI (SSE) · Spring Boot · Spring Security OAuth2 Resource Server · Keycloak (Token Relay) · FastAPI · Python · anyio · Amazon Bedrock · vistas semánticas en PostgreSQL
