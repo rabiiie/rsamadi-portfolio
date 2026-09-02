@@ -10,7 +10,7 @@ De dónde partía: tres comprobaciones (escaneo de secretos, auditoría de depen
 
 Criterio de diseño: el objetivo es que cualquier commit de la rama principal sea desplegable sin intervención manual, no acumular escáneres. Las comprobaciones cuyo resultado no sería interpretable todavía quedan aplazadas:
 
-- La cobertura se mide después de que el contexto de Spring arranque en CI. Cobertura calculada sobre un conjunto de tests que excluye el arranque de la aplicación describe otra aplicación.
+- La cobertura se mide después de que el contexto de Spring arranque en CI. Si el conjunto de tests deja fuera el arranque, el porcentaje no habla del código que se despliega.
 - Los tests de integración van después de tener migraciones versionadas, porque son las migraciones las que construyen el esquema que el test necesita.
 - El análisis de estilo y bugs entra con una línea base del código existente, nunca sobre pizarra limpia.
 
@@ -20,7 +20,7 @@ Criterio de diseño: el objetivo es que cualquier commit de la rama principal se
 
 | Comprobación | Modo | Por qué |
 |---|---|---|
-| Escaneo de secretos sobre todo el historial | tumba la ejecución | sin margen de tolerancia |
+| Escaneo de secretos sobre todo el historial | tumba la ejecución | una credencial filtrada se rota, no se valora |
 | Auditoría de dependencias de producción (npm) | tumba la ejecución | superficie pequeña y conocida; cada hallazgo es accionable hoy |
 | Compilación y tests unitarios | tumba la ejecución | — |
 | Arranque del contexto de Spring contra un PostGIS real | tumba la ejecución | solo fue posible después de versionar el esquema |
@@ -32,15 +32,15 @@ Criterio de diseño: el objetivo es que cualquier commit de la rama principal se
 
 Los controles nuevos entran en modo informativo y endurecen cuando su lista de hallazgos está vacía o justificada. Bloquear desde el primer día sobre un repositorio con historia detiene el trabajo durante el triaje del ruido inicial.
 
-Cada estado informativo lleva asociada una fecha o una condición de endurecimiento. Sin ellas el estado es permanente por defecto.
+Cada estado informativo lleva asociada una fecha o una condición de endurecimiento. Sin eso se queda informativo para siempre y nadie vuelve a mirarlo.
 
 Excepción: una comprobación limitada al diff de un pull request bloquea desde el principio, al no producir ruido histórico.
 
-### 1.2 Atenuación del resultado, no de la herramienta
+### 1.2 SAST: los hallazgos informan, la herramienta bloquea
 
 El job de SAST no lleva `continue-on-error`. Los hallazgos no tumban la ejecución porque el escáner no se invoca en modo error; un fallo de ejecución del escáner, sí.
 
-Con `continue-on-error` ambos casos producen el mismo resultado ignorado, y una mala configuración o un fallo de red quedan indetectados mientras el pipeline informa de que SAST pasa.
+Con `continue-on-error` los dos casos salen igual y se ignoran igual, así que una mala configuración o un fallo de red pueden estar semanas sin verse mientras el pipeline dice que SAST pasa.
 
 ---
 
@@ -82,13 +82,13 @@ Dos limitaciones:
 - `SET enable_seqscan = off` **encarece** los scans secuenciales, no los prohíbe. Sobre un fixture pequeño, un índice que falta sigue produciendo un scan secuencial y no un error, así que la comprobación tiene que leer el plan y el fixture tiene que ser lo bastante grande para ser representativo.
 - Estos tests son lentos y se seleccionan por tag de JUnit, así que la build rápida no los paga. Corren como job propio, y son deterministas para cada pull request, a diferencia de las mediciones de tiempo, que no lo son y van programadas.
 
-Reparto: planes en cada pull request, tiempos en ejecución programada. El plan es propiedad de la query y estable en cualquier máquina; el tiempo depende del runner y en runners compartidos produce fallos intermitentes.
+El reparto es: planes en cada pull request, tiempos en la ejecución programada. Un `EXPLAIN` devuelve el mismo plan en cualquier máquina; un tiempo depende del runner, y en runners compartidos esos tests fallan de forma intermitente.
 
 ---
 
 ## 5. Sustituciones forzadas por el plan del repositorio
 
-La fase de bajo coste se escribió dando por hecho que el escaneo de código, la revisión de dependencias y la protección de rama eran gratis. En un repositorio **privado** las tres están detrás del mismo plan de pago. Lo que se pierde no es el aviso: es el bloqueo en el momento del merge.
+La fase de bajo coste se escribió dando por hecho que el escaneo de código, la revisión de dependencias y la protección de rama eran gratis. En un repositorio **privado** las tres están detrás del mismo plan de pago. Lo que desaparece no es el aviso, sino el bloqueo en el merge.
 
 | Lo planeado | El sustituto | Qué se perdió |
 |---|---|---|
@@ -105,13 +105,13 @@ La protección de rama queda anotada como aplazada a la espera de un plan de pag
 - **Filtrado por rutas.** Un pull request que solo toca el frontend no compila Java. Implementado con salidas de job y condiciones `if`, y no con filtros de ruta a nivel de workflow: un job saltado por `if` cuenta como satisfecho para la protección de rama, mientras que uno saltado por filtro de ruta la deja esperando indefinidamente.
 - **Concurrencia con cancelación en curso solo en pull requests.** En la rama principal y en la ejecución programada el job termina, porque su resultado *es* el historial de esa rama.
 - **El escaneo lento va programado.** Descargar la base de datos de vulnerabilidades entera lleva casi una hora y no dice nada nuevo sobre un cambio de código. Se dispara en push, semanalmente por cron, y a mano cuando hace falta.
-- **Se genera un SBOM en cada build** y se guarda como artefacto, que es lo que convierte una futura política de licencias en un cambio de configuración y no en un proyecto.
+- **Se genera un SBOM en cada build** y se guarda como artefacto, así que si mañana hay que aplicar una política de licencias el inventario ya está hecho.
 
 ---
 
 ## Estado actual
 
-Los cimientos y los controles de bajo coste están en verde y funcionando. Las fases aplazadas, ordenadas por la misma regla: tests de frontend empezando por la lógica que resuelve la autorización, lint y auditoría de dependencias para los servicios Python, cobertura, reglas de arquitectura que hagan cumplir decisiones que hoy solo viven en prosa, entrega automatizada a un entorno de pruebas, y firma y procedencia de artefactos.
+Los cimientos y los controles de bajo coste están en verde y funcionando. Las fases aplazadas, en el mismo orden: tests de frontend empezando por la lógica que resuelve la autorización, lint y auditoría de dependencias para los servicios Python, cobertura, reglas de arquitectura para las decisiones que hoy solo están escritas en un ADR, entrega automatizada a un entorno de pruebas, y firma y procedencia de artefactos.
 
 ## Herramientas
 
