@@ -2,16 +2,44 @@
 
 > Write-up saneado: sin código propietario, sin credenciales y sin datos de cliente. Los identificadores están generalizados.
 
-## Contexto
+19 tools que envuelven las mismas vistas que leen los informes oficiales: el agente y el informe
+semanal no pueden dar cifras distintas.
+Dos fallos de autorización cerrados: al stream llegaba cualquier usuario autenticado, y el
+nombre del agente viajaba en la URL sin validar.
+Seis suites de evaluación alimentadas por el feedback negativo de producción.
 
-Dos agentes de dominio sobre una plataforma FTTH, que responden preguntas de operación en lenguaje natural: homes pasados en un municipio, contratos cancelados con la obra ya ejecutada, elementos listos para activar.
+Mi papel: diseño e implementación de la capa de tools, del control de acceso y del circuito de
+evaluación. Trabajo individual, sobre una plataforma en producción.
+
+## Qué es y para qué se hizo
+
+La plataforma FTTH tiene los datos de operación repartidos en decenas de tablas, y las preguntas
+del día a día son siempre las mismas: cuántos homes hay pasados en un municipio, qué contratos se
+cancelaron con la obra ya ejecutada, qué está listo para activar. Contestarlas exige saber en qué
+tabla mirar y qué códigos de estado cuentan, así que acaban siendo un correo a la persona que lo
+sabe, o un informe que alguien pide y tarda.
+
+Dos agentes las responden en lenguaje natural, contra los datos reales y no contra una copia.
 
 - **Agente A**: superficie SQL restringida, preexistente. Se le añadió un control de admisión.
 - **Agente B**: 19 tools a medida sobre Model Context Protocol, que envuelven las mismas vistas que leen los informes oficiales.
 - **Orquestación**: Python con FastAPI, respuestas en streaming por SSE. El servidor de tools es Spring Boot con el MCP server de Spring AI sobre SSE.
 - **Autenticación**: Token Relay con JWT de Keycloak.
 
----
+## Qué había que resolver
+
+Un agente que se escribe su propio SQL contra estas tablas devuelve cifras que no son las
+oficiales, dichas con seguridad y en una frase bien construida. Y la primera versión del
+control de acceso no protegía: cualquier usuario autenticado alcanzaba el stream, y el
+identificador del agente era un trozo de URL que el proxy reenviaba sin comprobar.
+
+## Decisiones de ingeniería
+
+- **Tools sobre las vistas del informe oficial, no text-to-SQL.** Una sola definición de cada métrica, que no controla ninguno de los dos consumidores.
+- **Cada agregado viaja con su cobertura**: qué entró, qué quedó fuera y por qué. Un número suelto en una frase afirma implícitamente que están todas las filas.
+- **La autorización se comprueba antes de llamar al modelo**, y el scope por proyecto lo aplica el servicio dueño del dato. Python autentica, no autoriza.
+- **El feedback negativo de producción se convierte en casos de evaluación**, enganchado a las tool calls que lo produjeron, para saber si el fallo fue de elección de tool, de parámetros o de redacción.
+- **La superficie SQL del agente preexistente se acotó con lista blanca**, no con lista negra de palabras peligrosas.
 
 ## 1. Tools frente a text-to-SQL
 
@@ -27,8 +55,6 @@ Efecto no previsto: los usuarios no utilizan códigos de proyecto, sino nombres 
 
 Descartado en la revisión del primer diseño: un `REPLACE(home_id, '-', '_')` dentro de los joins, que anula el uso de índices. Se resuelve con una columna normalizada en la base de datos, no con una transformación de texto en la capa de tools.
 
----
-
 ## 2. Cobertura en cada agregado
 
 Un agregado que descarta filas en silencio es asumible en un dashboard, donde el usuario mira la gráfica con la desconfianza normal. Un agente contesta "4.812 homes pasados" en una frase cerrada, sin nada que indique que la consulta dejó filas fuera.
@@ -43,8 +69,6 @@ En la misma respuesta viajan dos elementos más:
 Toda advertencia que haga falta para interpretar un número viaja en el payload y no en el prompt: las instrucciones del prompt se aplican a la conversación entera y no quedan pegadas a la cifra cuando el modelo la reutiliza.
 
 **Paginación.** Las tools de listado tienen un tope duro de filas. Al cortarse el resultado, la respuesta marca `has_more` y devuelve un mensaje para que el orquestador acote la consulta.
-
----
 
 ## 3. Autorización en tres capas
 
@@ -64,8 +88,6 @@ El arreglo captura la autenticación en el momento de invocar la tool, la expone
 
 Ojo con esto en Spring AI: `SecurityContextHolder` es un `ThreadLocal`, así que en cuanto la tool se ejecuta en un scheduler de Reactor el contexto ya no está y hay que pasarle la autenticación a mano.
 
----
-
 ## 4. Superficie SQL del agente preexistente
 
 El agente A respondía mediante SQL generado desde antes del trabajo con MCP. En lugar de reescribirlo se le añadió un control de admisión. En los cuatro puntos, la opción evidente es la mala:
@@ -76,8 +98,6 @@ El agente A respondía mediante SQL generado desde antes del trabajo con MCP. En
 - **Un esquema completo sí está permitido**, por pertenecer íntegramente a un cliente. Excepción deliberada: si añadir una vista obligara a editar una clase de seguridad, las vistas acabarían en el esquema compartido.
 - `MAX_SQL_LEN` 8000 y ejecución de solo lectura.
 
----
-
 ## 5. Sesión SSE reutilizada entre tareas
 
 **Síntoma.** El stream del agente MCP quedaba bloqueado unos treinta segundos y terminaba con el error *"attempted to exit a cancel scope in a different task than it was entered in"*.
@@ -87,8 +107,6 @@ El agente A respondía mediante SQL generado desde antes del trabajo con MCP. En
 **Causa.** El cliente abría la conexión SSE una vez y reutilizaba la sesión entre llamadas. El SDK de MCP se apoya en task groups de anyio, cuyos cancel scopes deben entrar y salir en la misma tarea; la respuesta en streaming es un generador asíncrono, de forma que cada `yield` de vuelta al framework cruza una frontera de tarea. La tarea que leía el SSE quedaba huérfana y la respuesta de la tool no llegaba.
 
 **Corrección.** Cada llamada abre, inicializa, usa y cierra su propia conexión, sin `yield` intermedios. Coste: una reconexión por llamada. El pool de conexiones queda anotado como optimización posterior, sobre un camino que ya funciona.
-
----
 
 ## 6. Del feedback negativo al caso de evaluación
 
@@ -101,8 +119,6 @@ Enganchar las tool calls es lo que hace atribuible el fallo: elección de tool i
 **Suites.** Seis, divididas por esas mismas líneas: enrutado de tools, planificación, resolución de nombres, síntesis de la respuesta y dos bancos de preguntas por dominio. La puntuación la da un modelo como juez, al tratarse de respuestas en prosa donde la comparación de cadenas mediría la redacción. Cada ejecución se guarda con su resultado por caso.
 
 **Dos límites.** El juez pertenece a la misma familia de modelos que el agente evaluado, debilidad conocida del método. Y el runner es secuencial para no chocar con el rate limit, de modo que la suite es lenta y se lanza de forma explícita, no en cada commit.
-
----
 
 ## Estado actual
 
