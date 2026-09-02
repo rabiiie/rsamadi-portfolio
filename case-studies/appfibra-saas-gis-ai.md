@@ -149,7 +149,7 @@ de mando, informes, exports y auditoría. El filtro se aplica en la consulta, no
 Todo se asigna desde la pantalla de administración. Publicar un informe o un agente nuevo es
 añadir a su catálogo una línea que asocia el identificador con su cliente. De ahí salen el
 permiso asignable, la authority que se comprueba en el servidor, la lista que devuelve
- al frontend y el rechazo de una petición a un agente de otro cliente.
+`/api/session` al frontend y el rechazo de una petición a un agente de otro cliente.
 
 Sobre el scope:
 
