@@ -8,26 +8,30 @@ Módulo de seguimiento de una plataforma FTTH. Tablas editables de cientos de mi
 más de 40 columnas, con edición en línea, agrupación, filtros, ordenación, columnas fijas y
 bloqueo optimista. Carga actual de 50 a 100 usuarios concurrentes; objetivo, 500.
 
-Sin incidencias abiertas por parte de los usuarios. Revisión preventiva previa a la ampliación
-del despliegue, con dos objetivos: localizar los límites de carga del sistema y dimensionar la
-infraestructura de producción, que tenía asignadas cuatro vCPU sin medición que lo justificara.
+Sin incidencias abiertas de usuarios: auditoría preventiva antes de escalar el despliegue, para
+saber dónde está el límite de carga y con qué máquina hay que contar. La de producción tenía
+cuatro vCPU sin ninguna medición detrás.
 
 Alcance: cliente y base de datos. Perfilado, instrumentación, correcciones y los tests que
 impiden la regresión.
 
 ## Resultados
 
-- **Repintado.** Desplazamiento del cursor sobre la tabla: recálculo de estilo del 45,7% al 16,1% del perfil, ocupación del hilo principal del 92,7% al 85,3%.
-- **Escritura.** Guardado de una fila: de 730 ms a 113 ms, tras eliminar el trabajo por fila que se ejecutaba en cada operación.
-- **Base de datos.** Histograma de historial: de 477.000 filas leídas por petición a un resumen diario de unas decenas.
-- **Capacidad.** Sin degradación a 150 usuarios concurrentes, saturación en 300 (187 req/s). El dimensionado de producción se decidió con esa cifra: ampliación de núcleos, no ajuste de parámetros.
-- **Web Worker eliminado** y ADR propio corregido: la serialización con `structuredClone` cuesta unas diez veces más que el cálculo que se pretendía descargar, en los cuatro tamaños probados.
-- **Resumen precalculado descartado** antes de implementarlo: 232 filas frente a las 477.000 del caso que sí lo justificaba.
+| | Antes | Después |
+|---|---|---|
+| Recálculo de estilo al pasar el cursor | 45,7% del perfil | 16,1% |
+| Ocupación del hilo principal | 92,7% | 85,3% |
+| Guardar una fila | 730 ms | 113 ms |
+| Filas leídas por el histograma de historial | 477.000 por petición | unas decenas |
+
+Capacidad: las pruebas de carga aguantan 150 usuarios concurrentes sin degradar y saturan en 300, a 187 req/s. Esa cifra es la que dimensionó la máquina de producción, y lo que hacía falta eran núcleos, no ajustar parámetros.
+
+Dos cosas que quité en lugar de añadir: un Web Worker (con su ADR, que había escrito yo) porque `structuredClone` cuesta unas diez veces más que el cálculo que iba a descargar, y un resumen precalculado para la segunda tabla, que no llegué a escribir porque tiene 232 filas y no 477.000.
 
 ## Decisiones de ingeniería
 
-- **Navegador.** Las 952 transiciones CSS simultáneas procedían de una transición declarada en la celda en lugar de la fila, multiplicada por 40 columnas. El comparador de `React.memo` de la fila omitía el flag de selección: defecto de corrección con síntomas de rendimiento.
-- **Base de datos.** El resumen diario lo mantiene una tarea programada y no el trigger de auditoría, para no devolver el coste al camino de escritura recién optimizado. Recálculo por días completos, no por marca de agua sobre `id`, porque una secuencia no garantiza el orden de commit.
+- **Navegador.** Las 952 transiciones CSS simultáneas procedían de una transición declarada en la celda en lugar de la fila, multiplicada por 40 columnas. Y el comparador de `React.memo` de la fila se dejaba fuera el flag de selección: un bug funcional que parecía lentitud, porque la fila no se enteraba de que la habían seleccionado.
+- **Base de datos.** El resumen diario lo mantiene una tarea programada y no el trigger de auditoría, para no penalizar otra vez el tiempo de respuesta del guardado. Recálculo por días completos, no por marca de agua sobre `id`, porque una secuencia no garantiza el orden de commit.
 - **CI.** Tests de plan de ejecución con Testcontainers sobre PostGIS real: verifican con `EXPLAIN (ANALYZE, BUFFERS)` el uso de índice de cada consulta crítica. La eliminación de un índice bloquea el pull request.
 
 **Stack.** Chrome DevTools · React DevTools Profiler · PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)` ·
@@ -46,23 +50,25 @@ Pestañas de DevTools, en orden de coste de análisis:
 
 1. **Consola.** Sin errores ni avisos. Descarta bucles de render.
 2. **Red.** Peticiones por gesto, tamaño y encadenamiento. Los 232 ms de apertura del editor de celda no son de React: son una comprobación de permisos contra el servidor previa a la edición. Otra capa, fuera de alcance.
-3. **Rendimiento.** Grabación de una interacción aislada (solo cursor, sin scroll ni clics), guardada como línea base. Lectura de *self* frente a *total*: el recálculo de estilo era el efecto, la causa estaba en las transiciones (§4).
-4. **Selector Stats**, sobre esa misma grabación. Coste por selector y número de elementos alcanzados: 7.332 invalidaciones desde un único selector (§3).
-5. **Memoria.** Dos capturas de heap y vista de comparación, sobre build de producción.
-6. **React Profiler.** Tres props reconstruidas en cada render y un comparador de `React.memo` incompleto, localizados registrando el cambio de identidad de cada prop por fila (§3).
+3. **Rendimiento.** Grabación de una interacción aislada (solo cursor, sin scroll ni clics), guardada como línea base. Lectura de *self* frente a *total*: el recálculo de estilo era el efecto y la causa estaba en las transiciones, como sale en el punto 4.
+4. **Selector Stats**, sobre esa misma grabación. Coste por selector y número de elementos alcanzados: de aquí salen las 7.332 invalidaciones desde un único selector del punto 3.
+5. **Memoria.** Dos capturas de heap y vista de comparación, sobre build de producción. En desarrollo se mide el bundler.
+6. **React Profiler.** Tres props reconstruidas en cada render y un comparador de `React.memo` incompleto, localizados registrando el cambio de identidad de cada prop por fila (puntos 6 y 7 del apartado 3).
 
 Instrumentación propia donde las herramientas estándar no llegan: `document.getAnimations()` para
 el número de animaciones activas y un `MutationObserver` para las mutaciones del DOM por
 interacción. De ahí salen las 952 transiciones simultáneas y las 232 mutaciones al editar la
-primera celda. Un conteo es estable entre ejecuciones; un tiempo absoluto depende de la máquina.
+primera celda. Cuento mutaciones y animaciones en lugar de milisegundos porque el tiempo
+absoluto variaba según la carga de la máquina, que está compartida.
 
-Hipótesis explícitas y verificación de todas: las cuatro iniciales, obtenidas por lectura de
-código, se descartaron (§2). Instrumento invariable entre ejecuciones: una modificación del
-script de carga entre la medición previa y la posterior invalidó esa comparación.
+Las hipótesis se escriben antes y se comprueban todas, también las que uno da por buenas: las
+cuatro que saqué leyendo el código se cayeron, y están en el punto 2. El instrumento no se toca
+entre ejecuciones: edité el script de carga entre la medición previa y la posterior y hubo que
+tirar esa comparación.
 
-En servidor, el mismo orden: verificación de que se ejecuta el escenario declarado (§6),
-throughput y no usuarios virtuales (§7), prueba de una sola variable para distinguir pool de CPU
-(§8), y plan de ejecución con `EXPLAIN (ANALYZE, BUFFERS)` (§9). Cierre automatizado (§11).
+En servidor el orden es el mismo: comprobar que se ejecuta el escenario declarado, medir
+throughput y no usuarios virtuales, aislar una sola variable para distinguir el pool de la CPU y,
+al final, mirar el plan con `EXPLAIN (ANALYZE, BUFFERS)`. Los cuatro pasos, en los puntos 6 a 9.
 
 ---
 
@@ -92,7 +98,7 @@ Cuatro hipótesis formuladas por lectura del fuente. Ninguna se confirmó.
 4. **Indicador de progreso animando `width`**, con layout forzado en cada frame. Sustituido por `transform: scaleX()`.
 5. **Getter del contenedor de scroll del virtualizador devolviendo el contenedor incorrecto**: montaba 100 filas en lugar de 28. Corregido.
 6. **Tres props reconstruidas en cada render**, que anulaban el `React.memo` de todas las filas.
-7. **Comparador de `React.memo` sin el flag de selección.** La fila solo se repintaba cuando un render ajeno la forzaba: no se actualiza hasta hacer scroll, y entonces aparece al día. Defecto de corrección, no de latencia, y superaba las pruebas manuales.
+7. **Comparador de `React.memo` sin el flag de selección.** La fila solo se repintaba cuando un render ajeno la forzaba: no se actualiza hasta hacer scroll, y entonces aparece al día. No es lentitud: es que la fila no se entera del cambio de estado, y así pasaba las pruebas manuales.
 
 ### 4. Medición antes y después, con el cursor como única variable
 
@@ -108,8 +114,8 @@ compartida.
 | `Event: animationiteration` | 35,0 % | no aparece |
 | Animaciones simultáneas (pico) | 953 | 1 · 15 · 4 |
 
-`Recalculate style` pasa de 7,5% self / 42,1% total a 16,1% self ≈ 16,1% total: el trabajo
-restante es propio y no arrastrado por las transiciones.
+`Recalculate style` pasa de 7,5% self / 42,1% total a 16,1% self ≈ 16,1% total. Es decir: antes
+el coste se lo metían las transiciones y ahora el trabajo que queda es suyo.
 
 Mutaciones del DOM por interacción, con un `MutationObserver` sobre las filas montadas:
 
@@ -140,9 +146,9 @@ la forma de las reales. Medianas de 40 muestras, por lotes: una pasada única de
 | 10.000 | 4,810 ms | 46,840 ms | 55,300 ms | 86,900 ms (18×) |
 
 Con 10.000 filas, cálculo 4,810 ms y serialización 46,840 ms. El hilo principal paga el
-`structuredClone` completo antes de ceder el control, de modo que el worker no descarga nada: el
-algoritmo es una pasada lineal que solo lee, y la clonación recorre la misma estructura
-reservando memoria.
+`structuredClone` completo antes de ceder el control, así que el worker no le quita trabajo: el
+algoritmo es una pasada lineal que solo lee, y clonar recorre la misma estructura y además
+reserva memoria para copiarla.
 
 ADR corregido de "usar un worker" a "solo si el cálculo cuesta más que la transferencia", con las
 dos cifras obligatorias antes de mover trabajo. Ficheros del worker eliminados.
@@ -208,7 +214,7 @@ La tabla solo recibe altas y se sella con la hora actual, de modo que 29 de los 
 gráfico son inmutables. La consulta pasa a leer un resumen diario de unas decenas de filas. Dos
 decisiones de implementación:
 
-- **Tarea programada, no trigger.** Mantener el resumen desde el trigger de auditoría cargaría el coste a cada guardado, que acababa de bajar de 730 ms por retirarle trabajo. El camino de escritura desconoce la existencia del resumen.
+- **Tarea programada, no trigger.** Mantener el resumen desde el trigger de auditoría cargaría el coste a cada guardado, que acababa de bajar de 730 ms por retirarle trabajo. El endpoint de guardado no sabe que el resumen existe.
 - **Recálculo de dos días completos, sin marca de agua por `id`.** Una secuencia no garantiza el orden de commit: la transacción con el id 100 puede confirmar antes que la del 99, y la marca de agua omitiría esa fila de forma permanente. El recálculo por día es idempotente.
 
 Además: paginación por keyset en sustitución de `OFFSET`, e índices GIN de trigramas para las
@@ -253,8 +259,8 @@ eran nuevas.
 Al incorporar la IP de cliente al contexto de auditoría, `current_setting('x', true)` devuelve
 cadena vacía y no NULL una vez fijada en la sesión, de forma que sobre conexiones de pool la
 cadena de `COALESCE` almacenaba `''` de forma permanente. Lo detectó un test escrito para ese
-mismo cambio, antes de publicarlo. En una conexión de pool, el estado de sesión no es estado
-limpio.
+mismo cambio, antes de publicarlo. Ojo con `current_setting` en PostgreSQL cuando hay pool: las
+conexiones reutilizan la sesión y estas variables no se limpian entre peticiones.
 
 ## Errores de instrumentación detectados
 
@@ -262,7 +268,7 @@ limpio.
 - Dobles renders en desarrollo procedentes de `<StrictMode>`, interpretados inicialmente como dobles renders reales.
 - INP de 3 segundos medido contra el servidor de desarrollo.
 - Modificación del script de carga entre una ejecución posterior y una previa, que invalidó esa comparación. Repetida con el instrumento invariable.
-- k6 consumiendo las variables y ejecutando un escenario no declarado ([§6](#6-pruebas-de-carga-el-escenario-que-no-se-ejecutaba)).
+- k6 consumiendo las variables y ejecutando un escenario no declarado ([punto 6](#6-pruebas-de-carga-el-escenario-que-no-se-ejecutaba)).
 
 ## Puntos abiertos
 

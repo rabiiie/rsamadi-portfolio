@@ -32,7 +32,7 @@ La causa real: una transición de 0,1 segundos declarada en la **celda** y no en
 
 **Punto de partida**: eliminación de un Web Worker que exigía una decisión de arquitectura **escrita por mí**. Lo medí, y serializar los datos para mandarlos costaba entre 7 y 10 veces más que el propio cálculo, en todos los tamaños de 25 a 10.000 filas. El envío a un worker no descarga el hilo principal, que paga el clonado completo antes de ceder el control. ADR corregido de "usar un worker" a "solo si el cálculo cuesta más que la transferencia", con las dos cifras obligatorias.
 
-Criterio de método: medir la variabilidad antes que la diferencia, y aislar una variable por experimento.
+El hábito: medir primero cuánto varía una misma medición repetida, y mover una sola variable por experimento.
 
 ## Si preguntan por escala, o "cuántos usuarios aguanta"
 

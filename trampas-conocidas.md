@@ -120,7 +120,7 @@ permisos por módulo fueran invisibles ahí, el usuario parecería no tener ning
 antigua le abriría el cliente entero. Omitir el filtro amplía el acceso, no lo restringe.
 
 **Qué mirar la próxima vez.** Cuando llega una columna nueva al esquema, buscar quién la lee, no
-quién la escribe. Una columna que solo se escribe no es un control.
+quién la escribe. Una columna que se escribe y nadie filtra por ella no restringe nada, aunque el comentario del esquema diga que sí.
 
 ## Datos e integraciones
 
