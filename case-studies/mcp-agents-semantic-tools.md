@@ -17,9 +17,9 @@ Dos agentes de dominio sobre una plataforma FTTH, que responden preguntas de ope
 
 Las métricas de la plataforma tienen definición previa. "Homes passed" es una función sobre códigos de estado, validada contra la normativa técnica del cliente; el informe semanal excluye una lista de proyectos; "facturado" significa que un campo concreto no está vacío.
 
-Un modelo que genera su propio SQL no dispone de esas definiciones: ve tablas. El resultado es una cifra aritméticamente correcta e institucionalmente falsa, expresada con seguridad y destinada a un informe de cliente.
+Un modelo que genera su propio SQL no dispone de esas definiciones: ve tablas. Devuelve una cifra que sale bien de la aritmética y no coincide con la que firma el informe oficial, y el usuario la pega en un documento que va al cliente.
 
-Criterio adoptado: las tools envuelven la lógica de negocio existente y no la reimplementan. El agente y el informe semanal resuelven contra la misma vista, de modo que no pueden dar cifras distintas.
+Regla: las tools envuelven la lógica de negocio existente y no la reimplementan. El agente y el informe semanal resuelven contra la misma vista, de modo que no pueden dar cifras distintas.
 
 19 tools parametrizadas: resolución de proyecto, resumen de hitos por proyecto y de cartera completa, contratos por estado, ficha de un home, consultas de elementos listos para la siguiente fase y detección de anomalías. Ninguna `query(sql)` genérica.
 
@@ -31,7 +31,7 @@ Descartado en la revisión del primer diseño: un `REPLACE(home_id, '-', '_')` d
 
 ## 2. Cobertura en cada agregado
 
-Un agregado que descarta filas en silencio es asumible en un dashboard, donde el usuario aplica el escepticismo habitual ante una gráfica. Un agente responde "4.812 homes pasados" en una frase bien formada, y esa formulación afirma implícitamente que están todos.
+Un agregado que descarta filas en silencio es asumible en un dashboard, donde el usuario mira la gráfica con la desconfianza normal. Un agente contesta "4.812 homes pasados" en una frase cerrada, sin nada que indique que la consulta dejó filas fuera.
 
 Toda tool de agregación devuelve la cifra más un bloque `coverage`: qué se incluyó, qué se excluyó y con qué motivo, y las advertencias aplicables. Una consulta por periodo sobre hitos devuelve el conteo y, cuando procede, la advertencia de que N registros sin fecha quedan fuera del periodo. Sin exclusiones, la lista de advertencias va vacía.
 
@@ -40,7 +40,7 @@ En la misma respuesta viajan dos elementos más:
 - **Procedencia.** Cada respuesta nombra la vista de origen del dato, identificada como la fuente del informe semanal oficial. Ante una pregunta sobre el origen, el modelo dispone del dato y no lo genera.
 - **Relaciones entre métricas.** Cuando una respuesta devuelve dos métricas y una es subconjunto estricto de la otra, incluye literalmente `"HP+ es subconjunto de HP; no sumar"`.
 
-Criterio: una advertencia necesaria para interpretar un número viaja en el payload, no en el prompt. Las instrucciones del prompt se aplican a la conversación y no acompañan a la cifra.
+Toda advertencia que haga falta para interpretar un número viaja en el payload y no en el prompt: las instrucciones del prompt se aplican a la conversación entera y no quedan pegadas a la cifra cuando el modelo la reutiliza.
 
 **Paginación.** Las tools de listado tienen un tope duro de filas. Al cortarse el resultado, la respuesta marca `has_more` y devuelve un mensaje para que el orquestador acote la consulta.
 
@@ -54,29 +54,27 @@ Requisito: acceso asignado para el uso de IA y restricción por dominio, de form
 
 Existe ahora un catálogo que mapea agente a dominio y un guard que lo comprueba en los dos proxies antes de reenviar. La authority es `ROLE_<dominio>_AGENT` y una sola asignación cubre ambos requisitos. Una petición no autorizada se rechaza con 403 sin llamar al modelo.
 
-**Capa tres: scope de recurso por Token Relay.** El JWT del navegador llega al orquestador Python, que valida firma y caducidad y lo reenvía intacto al servidor MCP en Spring. Spring lo valida como resource server y aplica el mismo guard de scope por proyecto que la API REST. Python autentica y no autoriza: la decisión permanece en el servicio propietario del dato, con una única implementación.
+**Capa tres: scope de recurso por Token Relay.** El JWT del navegador llega al orquestador Python, que valida firma y caducidad y lo reenvía intacto al servidor MCP en Spring. Spring lo valida como resource server y aplica el mismo guard de scope por proyecto que la API REST. Python autentica y no autoriza: quien decide es el servicio dueño del dato, y el guard de scope existe una sola vez.
 
 **Defecto detectado.** El MCP server de Spring AI ejecuta las tools en un scheduler elástico de Reactor, no en el hilo de la petición HTTP, y el contexto de Spring Security está asociado al hilo. Al consultar una tool qué proyectos puede ver el usuario, el contexto estaba vacío: la identidad se validaba dos veces y se perdía entre el filtro y la tool.
 
 El fallo era cerrado. El atajo aparente (suprimir la comprobación, dado que la llamada es interna y el token ya venía validado) habría dejado el scope por proyecto sin punto de aplicación, sin que ningún test lo detectara: en un test el usuario ejecutor lo ve todo.
 
-El arreglo captura la autenticación en el momento de invocar la tool, la expone durante la llamada y la limpia en un `finally`. La limpieza es necesaria: un hilo de pool que conserve la identidad de un usuario la aplica al siguiente.
+El arreglo captura la autenticación en el momento de invocar la tool, la expone durante la llamada y la limpia en un `finally`. La limpieza no es opcional: el hilo vuelve al pool, y si se queda con la identidad de un usuario se la aplica al siguiente.
 
-Al montar un framework sobre un runtime asíncrono hay que revisar qué supuestos de seguridad estaban ligados al hilo.
+Ojo con esto en Spring AI: `SecurityContextHolder` es un `ThreadLocal`, así que en cuanto la tool se ejecuta en un scheduler de Reactor el contexto ya no está y hay que pasarle la autenticación a mano.
 
 ---
 
 ## 4. Superficie SQL del agente preexistente
 
-El agente A respondía mediante SQL generado desde antes del trabajo con MCP. En lugar de reescribirlo se le añadió un control de admisión. La versión ingenua de cada decisión es incorrecta:
+El agente A respondía mediante SQL generado desde antes del trabajo con MCP. En lugar de reescribirlo se le añadió un control de admisión. En los cuatro puntos, la opción evidente es la mala:
 
 - **Lista blanca de las tablas referenciadas**, no lista negra de palabras peligrosas. La comprobación es que toda tabla tras `FROM` o `JOIN` esté en la lista o sea un CTE declarado en el propio `WITH`.
 - **Literales y comentarios se eliminan antes del análisis.** En caso contrario, un nombre de tabla permitido escrito dentro de una cadena o un comentario avala una consulta que toca otra no permitida.
 - **Los nombres sin cualificar también deben estar en la lista.** PostgreSQL los resuelve por `search_path`, que alcanza el esquema compartido donde viven las tablas de otros clientes; admitirlos en bloque permite lectura entre clientes sin necesidad de exploit. Las tablas del cliente se escriben cualificadas por esquema.
 - **Un esquema completo sí está permitido**, por pertenecer íntegramente a un cliente. Excepción deliberada: si añadir una vista obligara a editar una clase de seguridad, las vistas acabarían en el esquema compartido.
 - `MAX_SQL_LEN` 8000 y ejecución de solo lectura.
-
-Dos agentes y dos superficies, con el mismo criterio: la superficie abarca el dominio y ninguna tabla más.
 
 ---
 
