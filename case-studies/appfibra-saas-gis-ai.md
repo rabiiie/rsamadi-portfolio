@@ -40,7 +40,7 @@ Lo que construí después empezó por el otro lado, por el dominio. Y creció a 
 
 - **Toda importación deja historial campo a campo**, con el valor anterior y el nuevo, para poder contestar a un cliente que discute una cifra y para ver cuándo un tercero reescribe media tabla.
 - **La autorización se combina en cuatro niveles** (cliente, módulo, grupo de columnas y obra), y el scope entra en el SQL. No se filtra en memoria después de traer las filas.
-- **Un informe o un agente nuevo se declara en un sitio y ya está publicado.** De esa declaración salen solos su permiso, su entrada en el menú y su casilla en la pantalla de administración, en lugar de tener que añadirlo a mano en cada uno de esos sitios.
+- **Un informe o un agente nuevo es una línea en un catálogo del backend**, la que asocia su identificador con el cliente al que pertenece. De ahí salen su permiso, la authority, lo que devuelve el endpoint de sesión al frontend y la comprobación que hace el proxy antes de llamar al modelo.
 - **Revertir es una escritura nueva y no una anulación**: queda auditada, pasa por el mismo bloqueo optimista, y las filas que otro ha tocado después se separan de las que no.
 - **Los indicadores de obra se precalculan** en tablas de estudio, con una cola en la base de datos y no en memoria, porque calcularlos en cada petición no aguanta el objetivo de usuarios concurrentes.
 - **El GIS es configurable por cliente**, así que pasó de uno a tres sin reescritura.
@@ -147,8 +147,9 @@ A una subcontrata se le asignan sus obras y ve la plataforma acotada a ellas: li
 de mando, informes, exports y auditoría. El filtro se aplica en la consulta, no en la interfaz.
 
 Todo se asigna desde la pantalla de administración. Publicar un informe o un agente nuevo es
-añadir una línea a su catálogo: de ahí salen su permiso, su entrada en el menú y la casilla con
-la que se asigna a un usuario.
+añadir a su catálogo una línea que asocia el identificador con su cliente. De ahí salen el
+permiso asignable, la authority que se comprueba en el servidor, la lista que devuelve
+ al frontend y el rechazo de una petición a un agente de otro cliente.
 
 Sobre el scope:
 
