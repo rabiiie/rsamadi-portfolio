@@ -40,7 +40,7 @@ devolvía igualmente una posición, que se escribía en el EXIF sin ningún avis
 
 ## Impacto
 
-- **Calidad del dato.** La lectura automática del rótulo pasa de 1 de 27 a 27 de 27 sobre la misma muestra, y de 6 de 21 a 21 de 21 sobre una segunda. Las fotos que antes había que completar a mano se resuelven solas.
+- **Calidad del dato.** La lectura automática del rótulo pasa de 1 de 27 a 27 de 27 sobre la misma muestra de fotos. Sobre una segunda muestra, de 21, la versión final lee las 21. Cada foto que se lee es una foto que el operador no tiene que completar a mano.
 - **Datos verificados y control de acceso.** Corregidos dos fallos que no daban error: una comprobación de acceso que nunca casaba, y el geocoder que devolvía el centro del país a 140 km cuando no encontraba la dirección. Ahora cada coordenada lleva su precisión (portal, calle o pueblo) y la que no la tiene no se acepta.
 - **Coste conocido.** El borrado de la marca de agua baja del 55% al 34% de superficie tapada, que es lo que impide que el modelo se invente el fondo. El OCR pasa a costar el doble por foto, 1,20 € cada 400 en lugar de 0,60 €, y esa es la contrapartida de la precisión de arriba.
 
@@ -49,7 +49,7 @@ devolvía igualmente una posición, que se escribía en el EXIF sin ningún avis
 | | Antes | Después |
 |---|---|---|
 | Fotos con el rótulo leído entero (muestra de 27) | 1 | 27 |
-| Segunda muestra, con el reparto de banda corregido (21) | 6 | 21 |
+| Segunda muestra (21 fotos), al añadir el presupuesto de área al reparto de banda | 16 | 21 |
 | Superficie de foto que tapa la máscara de borrado | 55% | 34% |
 | Coste de OCR por cada 400 fotos | 0,60 € | 1,20 € |
 
