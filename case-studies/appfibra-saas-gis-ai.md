@@ -274,7 +274,7 @@ antes salían bien.
 
 ## 6. La documentación fotográfica
 
-Las cuadrillas fotografían las instalaciones de fibra y cada foto lleva una marca de agua con
+Los técnicos de obra fotografían las instalaciones de fibra y cada foto lleva una marca de agua con
 la empresa, el pueblo, el nodo, la dirección y las coordenadas. Un microservicio en Python trata
 esas fotos: lee la marca de agua, saca de ella las coordenadas y las escribe en el EXIF, o al revés,
 resuelve la dirección contra Places y tablas de datos de equipo de obra y estampa la marca de agua corregida.

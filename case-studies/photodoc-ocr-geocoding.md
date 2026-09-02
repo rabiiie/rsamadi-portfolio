@@ -4,15 +4,15 @@
 
 ## Qué es y para qué se hizo
 
-Las cuadrillas fotografían cada instalación de fibra que ejecutan, y esas fotos son parte del
-entregable: el cliente las exige como prueba de la obra, con la ubicación correcta y con su
-nomenclatura de ficheros. Cada foto lleva un rótulo estampado por la app de cámara con la
+Los técnicos de obra fotografían cada instalación de fibra que ejecutan. Esas fotos son parte del
+entregable: el cliente las pide como prueba de que la obra está hecha, con la ubicación correcta
+y con los ficheros nombrados como él dice. Cada foto lleva un rótulo estampado por la app de cámara con la
 empresa, el pueblo, el nodo, las coordenadas y la dirección.
 
-Prepararlas a mano no es viable. Llegan por lotes de cientos, con cuatro formatos de rótulo
-distintos según la app que use cada cuadrilla, cinco nomenclaturas de fichero según el cliente,
-y una parte de las fotos sin coordenadas en el EXIF. Comprobar y renombrar foto a foto es el
-trabajo que PhotoDoc automatiza.
+Prepararlas a mano no sale a cuenta. Llegan por lotes de cientos, con cuatro formatos de rótulo
+según la app de cámara que use cada técnico, cinco formas de nombrar los ficheros según el
+cliente, y una parte sin coordenadas en el EXIF. Comprobar y renombrar foto a foto es lo que
+automatiza PhotoDoc.
 
 **Qué hace, en orden:**
 
@@ -85,7 +85,7 @@ texto completo. Sobre la misma muestra, 27 de 27. Cuatro cosas que salieron al m
 
 **En la fusión gana la lectura más larga, no la última.** El recorte derecho solo alcanza la cola de los renglones del rótulo izquierdo, y su `748` truncado estaba pisando el `50.00748` completo del otro.
 
-**Un arreglo relacionado.** La función que extrae coordenadas usaba `.search()`, o sea solo la primera coincidencia. El OCR concatena números de renglones contiguos y forma pares falsos de aspecto válido (`10.89201, 08.2026`) antes del par correcto. Cambiado a `finditer`, comprobando el rango de cada par y parando en el primero que cae donde trabaja la cuadrilla.
+**Un arreglo relacionado.** La función que extrae coordenadas usaba `.search()`, o sea solo la primera coincidencia. El OCR concatena números de renglones contiguos y forma pares falsos de aspecto válido (`10.89201, 08.2026`) antes del par correcto. Cambiado a `finditer`, comprobando el rango de cada par y parando en el primero que cae en la zona donde se trabaja.
 
 **Hasta dónde llega la banda.** La segunda pasada corre también sobre los bloques, no solo sobre el texto plano: sus cajas se traducen a coordenadas de la foto completa y se fusionan con las de la primera. De ellas dependen la localización de la marca de agua y la máscara de borrado.
 
@@ -218,7 +218,7 @@ Borrar el rótulo es la función que más le importa al negocio, y el modelo que
 
 En un pueblo, 40 fotos pendientes: **18 resueltas**.
 
-Las otras 22 no tienen coordenadas ni en la imagen ni en el EXIF: de las 40, **ninguna** traía GPS. Entre las cuadrillas circulan varias apps de cámara y solo algunas estampan posición: de los cuatro formatos de rótulo que aparecieron, dos llevan coordenadas y dos solo fecha o nombre del técnico. Si la app de cámara no estampó la posición, no hay nada que leer.
+Las otras 22 no tienen coordenadas ni en la imagen ni en el EXIF: de las 40, **ninguna** traía GPS. Los técnicos usan varias apps de cámara distintas y solo algunas estampan posición: de los cuatro formatos de rótulo que aparecieron, dos llevan coordenadas y dos solo fecha o nombre del técnico. Si la app de cámara no estampó la posición, no hay nada que leer.
 
 Para esas queda el nombre de la carpeta, que **es** una dirección. Geocodificarlo da la coordenada del portal, no la del punto donde estaba el técnico. Está implementado y guardado con un origen distinto, para que no se mezcle con una coordenada leída de la foto. Una llamada de geocoding por carpeta, no por foto.
 
