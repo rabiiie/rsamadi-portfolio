@@ -1,28 +1,48 @@
-# Documentación fotográfica: OCR, geocoding y borrado de marcas de agua
+# PhotoDoc: documentación fotográfica de obra
 
 > Write-up saneado: sin código propietario, sin credenciales, sin nombres de cliente ni de localidad. Las mediciones son reales; los sitios están generalizados.
 
+## Qué es y para qué se hizo
+
+Las cuadrillas fotografían cada instalación de fibra que ejecutan, y esas fotos son parte del
+entregable: el cliente las exige como prueba de la obra, con la ubicación correcta y con su
+nomenclatura de ficheros. Cada foto lleva un rótulo estampado por la app de cámara con la
+empresa, el pueblo, el nodo, las coordenadas y la dirección.
+
+Prepararlas a mano no es viable. Llegan por lotes de cientos, con cuatro formatos de rótulo
+distintos según la app que use cada cuadrilla, cinco nomenclaturas de fichero según el cliente,
+y una parte de las fotos sin coordenadas en el EXIF. Comprobar y renombrar foto a foto es el
+trabajo que PhotoDoc automatiza.
+
+**Qué hace, en orden:**
+
+1. Lee el rótulo de la foto con OCR.
+2. Saca de él las coordenadas y las escribe en el EXIF, o al revés: si la foto trae GPS y el rótulo no, completa el rótulo.
+3. Cuando no hay coordenadas, resuelve la dirección contra un geocoder y contra las tablas de datos de obra, y guarda con qué precisión la ha resuelto.
+4. Reescribe el rótulo cuando lo que pone no cuadra con la dirección real, y pide al operador que decida cuando las dos fuentes discrepan.
+5. Renombra los ficheros según la nomenclatura del cliente, cruzando contra un Excel o un CSV de referencia cuando hace falta.
+6. Borra el rótulo de la imagen para producir el juego de fotos limpias que se entrega.
+
+**Con qué está hecho.** Microservicio en Python con FastAPI, sobre un Windows Server
+on-premise, con una instancia del módulo por hilo del pool. En la nube van OCR (Amazon
+Textract), geocoding (Amazon Location Service), extracción de campos y borrado del rótulo
+(Amazon Bedrock); la base de datos y los ficheros se quedan en casa. Lo consumen el backend de
+Spring Boot y la interfaz React.
+
+## Qué estaba fallando
+
+El entregable es la propia foto, y no hay ninguna etapa posterior que valide lo que sale: una
+coordenada con 140 km de error y una correcta son indistinguibles en un listado de ficheros. La
+comprobación tiene que ocurrir al producir el dato.
+
+El proceso leía 1 de cada 27 rótulos, y cuando el geocoder no encontraba una dirección
+devolvía igualmente una posición, que se escribía en el EXIF sin ningún aviso.
+
 ## Impacto
 
-El proceso automático que trata las fotos que entregan las cuadrillas en campo leía 1 de cada
-27, y cuando no encontraba una dirección rellenaba una ubicación falsa sin avisar. Todo eso
-acababa en el material que se entrega al cliente.
-
 - **Calidad del dato.** La lectura automática del rótulo pasa de 1 de 27 a 27 de 27 sobre la misma muestra, y de 6 de 21 a 21 de 21 sobre una segunda. Las fotos que antes había que completar a mano se resuelven solas.
-- **Seguridad y datos verificados.** Corregidos dos fallos que no daban error: una comprobación de acceso que nunca casaba, y un geocoder que devolvía el centro del país a 140 km cuando no encontraba la dirección. Ahora cada coordenada lleva su precisión (portal, calle o pueblo) y la que no la tiene no se acepta.
-- **Coste controlado.** El borrado de la marca de agua con Amazon Bedrock baja del 55% al 34% de superficie tapada, que es lo que impide que el modelo se invente el fondo. El OCR pasa a costar el doble por foto, 1,20 € cada 400 en vez de 0,60 €, y esa es la contrapartida de la precisión de arriba.
-
-## Resumen
-
-Las cuadrillas fotografían las instalaciones de fibra y cada foto lleva un rótulo estampado con
-empresa, pueblo, nodo, coordenadas y dirección. Un microservicio en Python lee ese rótulo,
-verifica la ubicación, la escribe en el EXIF, corrige el rótulo cuando no cuadra con la
-dirección, renombra los ficheros según la nomenclatura de cada cliente y borra el rótulo para
-producir el material que se entrega.
-
-El entregable es la propia foto. Una coordenada con 140 km de error y una correcta son
-indistinguibles en un listado de ficheros, y no hay ninguna etapa posterior que valide: o se
-comprueba al producir el dato, o no se comprueba.
+- **Datos verificados y control de acceso.** Corregidos dos fallos que no daban error: una comprobación de acceso que nunca casaba, y el geocoder que devolvía el centro del país a 140 km cuando no encontraba la dirección. Ahora cada coordenada lleva su precisión (portal, calle o pueblo) y la que no la tiene no se acepta.
+- **Coste conocido.** El borrado de la marca de agua baja del 55% al 34% de superficie tapada, que es lo que impide que el modelo se invente el fondo. El OCR pasa a costar el doble por foto, 1,20 € cada 400 en lugar de 0,60 €, y esa es la contrapartida de la precisión de arriba.
 
 ## Resultados
 
@@ -33,7 +53,6 @@ comprueba al producir el dato, o no se comprueba.
 | Superficie de foto que tapa la máscara de borrado | 55% | 34% |
 | Coste de OCR por cada 400 fotos | 0,60 € | 1,20 € |
 
-- El geocoder devolvía una posición siempre, también cuando no encontraba la dirección. Ahora cada coordenada lleva su precisión (portal, calle o pueblo) y la posición sola no se acepta.
 - Un trabajo de renombrado terminaba como *completado* sin haber renombrado nada cuando faltaba el fichero de referencia. Ahora corta antes de empezar.
 - Cinco bugs de interfaz que se habían tratado por separado resultaron ser el mismo: el estado del trabajo vivía en tres sitios.
 - La comprobación de acceso comparaba el nombre del cliente contra su código, así que nunca casaba y solo dejaba un `WARN`. En la práctica no había autorización.
@@ -45,14 +64,6 @@ comprueba al producir el dato, o no se comprueba.
 - **Dos fuentes independientes para la misma dirección**, el nombre del fichero y el rótulo. Si coinciden, la foto se aprueba sola; si discrepan, decide el operador sobre la imagen.
 - **La marca de agua se borra por renglones y no por rectángulo.** Con el 55% de la foto tapada el modelo se inventaba el fondo.
 - **Residencia de datos escalada al negocio**, no resuelta por ingeniería: el modelo que borra el rótulo solo existe en Estados Unidos y las marcas de agua llevan dirección postal y GPS.
-
-**Stack.** Python · FastAPI · Amazon Textract · Amazon Location Service · Amazon Bedrock ·
-Pillow · PostgreSQL · Spring Boot · React · EXIF/GPS. Detalle al final.
-
-**Cómo corre.** Microservicio Python sobre Windows Server on-premise, con una instancia del
-módulo por hilo del pool. En la nube van OCR, geocoding, extracción de campos e inpainting; la
-base de datos y los ficheros se quedan en casa. Lo consumen el backend de Spring Boot y la
-interfaz React.
 
 ---
 

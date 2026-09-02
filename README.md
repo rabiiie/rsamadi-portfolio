@@ -14,7 +14,7 @@ Productos:
 Áreas técnicas:
 
 - [Agentes de IA sobre MCP: tools en lugar de text-to-SQL](case-studies/mcp-agents-semantic-tools.md)
-- [Documentación fotográfica: OCR, geocoding y borrado de marcas](case-studies/photodoc-ocr-geocoding.md)
+- [PhotoDoc: documentación fotográfica de obra](case-studies/photodoc-ocr-geocoding.md)
 - [Rendimiento y capacidad: diagnóstico en navegador y base de datos](case-studies/measured-performance.md)
 - [Pipeline de CI: qué comprobaciones bloquean](case-studies/ci-pipeline-what-blocks.md)
 - [Trampas conocidas](trampas-conocidas.md)
