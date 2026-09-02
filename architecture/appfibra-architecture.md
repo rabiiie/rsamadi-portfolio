@@ -35,7 +35,6 @@ flowchart TB
 - **RBAC por cliente y por módulo**: un rol concedido sobre los datos de un cliente no se filtra a los de otro.
 - **Identidad federada con Keycloak/OAuth2**, no una tabla de usuarios propia. El JWT lleva roles, organizaciones y módulos.
 - **El scope de recurso se comprueba en el backend** antes de cada listado, export, auditoría, cuadro de mando y mutación. No se esconde solo en la interfaz.
-- **Row-level security en Postgres** como segunda capa detrás de las comprobaciones del backend, no como sustituta de ellas.
 - **CSRF en cada mutación**, y CORS cerrado en producción, no abierto por comodidad.
 - **La sesión y las acciones de usuario se auditan**, así que "quién hizo esto" tiene respuesta.
 - **Las llamadas del backend al agente y al servicio de fotos se autentican igual** que tendría que hacerlo un cliente externo: que algo sea interno no lo hace de confianza.
