@@ -26,13 +26,13 @@ Cuatro mediciones adicionales durante la implementación:
 
 **Lo que manda es el área del recorte, no el margen.** Medido sobre una foto: un recorte de 2017×1344 devolvía `748`; el mismo recorte a 2017×1018 devolvía `50.00748`. Por encima de aproximadamente 1,5 Mpx el servicio reduce la imagen y vuelve a comerse el primer carácter de cada renglón. El alto de la banda se calcula ahora contra ese presupuesto.
 
-**El recorte necesita su propio margen**, 60 px. Un glifo que toca el borde de la imagen se corta: `50.01774` llegaba como `0.01774`, que ya no es una latitud europea, así que la foto se descartaba por ilegible. Una línea que no parsea queda registrada en el log; una que parsea a otro número válido, no.
+**El recorte necesita su propio margen**, 60 px. Un glifo que toca el borde de la imagen se corta: `50.01774` llegaba como `0.01774`, que ya no es una latitud europea, así que la foto se descartaba por ilegible. Si la línea no parsea, queda en el log y se ve. Si parsea a otro número que también es una latitud válida, no se entera nadie.
 
 **Se mandan las dos mitades de la banda.** El rótulo va pegado a un margen, y a cuál depende de la app de cámara. Deducir el lado por el centro de masas de la primera pasada **falla**: el texto impreso en otra parte del encuadre desplaza el centro al lado contrario y el recorte cae al lado del rótulo y no encima. Sobre una segunda muestra: 6 de 21 deduciendo el lado, 16 de 21 mandando las dos mitades, 21 de 21 aplicando además el presupuesto de área.
 
 **En la fusión gana la lectura más larga, no la última.** El recorte derecho solo alcanza la cola de los renglones del rótulo izquierdo, y su `748` truncado estaba pisando el `50.00748` completo del otro.
 
-**Un arreglo relacionado.** La función que extrae coordenadas usaba `.search()`, o sea solo la primera coincidencia. El OCR concatena números de renglones contiguos y forma pares falsos de aspecto válido (`10.89201, 08.2026`) antes del par correcto. Cambiado a iterar y parar en la primera coincidencia **plausible**, que es otra cosa distinta de la primera coincidencia.
+**Un arreglo relacionado.** La función que extrae coordenadas usaba `.search()`, o sea solo la primera coincidencia. El OCR concatena números de renglones contiguos y forma pares falsos de aspecto válido (`10.89201, 08.2026`) antes del par correcto. Cambiado a `finditer`, comprobando el rango de cada par y parando en el primero que cae donde trabaja la cuadrilla.
 
 **Hasta dónde llega la banda.** La segunda pasada corre también sobre los bloques, no solo sobre el texto plano: sus cajas se traducen a coordenadas de la foto completa y se fusionan con las de la primera. De ellas dependen la localización de la marca de agua y la máscara de borrado.
 
@@ -59,20 +59,21 @@ Los cuatro casos superan el filtro de plausibilidad geográfica. Una guarda por 
 
 ---
 
-## 3. Granularidad por foto, no por carpeta
+## 3. Un dato por foto, no por carpeta
 
-**Síntoma.** Las fotos sin coordenadas utilizables caen en una carpeta llamada `sin_coordenadas`. Al llevar un diálogo de escritorio al navegador era cómodo convertir una pregunta por foto en una sola respuesta por carpeta.
+Las fotos sin coordenadas utilizables caen en una carpeta llamada `sin_coordenadas`. Al llevar un diálogo de escritorio al navegador salía muy barato convertir una pregunta por foto en una sola respuesta por carpeta.
 
-**Causa del descarte.** Comprobado contra datos reales: una de esas carpetas tenía fotos de tres calles distintas. La dirección está en el nombre de cada fichero, con el código de nodo como sufijo, no en el nombre de la carpeta, que es literalmente `sin_coordenadas`. Colapsar el diálogo habría sellado fotos de portales diferentes con una misma coordenada, sin dar ningún error.
+Lo comprobé contra datos reales antes de hacerlo: una de esas carpetas tenía fotos de tres calles distintas. La dirección está en el nombre de cada fichero, con el código de nodo como sufijo, y no en el de la carpeta, que es literalmente `sin_coordenadas`. Colapsar el diálogo habría sellado fotos de portales diferentes con la misma coordenada, sin dar ningún error.
 
-**Corrección.** Todo dato que se le pide al operador se modela por foto. Lo que no venga en la respuesta se salta, igual que dejar un campo en blanco en el diálogo original.
+Así que todo dato que se le pide al operador se modela por foto, y lo que no venga en la respuesta se salta, igual que dejar un campo en blanco en el diálogo original.
 
 ---
 
 ## 4. Corregir el rótulo y renombrar
 
-Además de leer el rótulo, el servicio lo reescribe y renombra los ficheros. Ambas operaciones escriben sobre el entregable, y un fallo produce una foto
-correcta en apariencia con datos de otra ubicación.
+Además de leer el rótulo, el servicio lo reescribe y renombra los ficheros. Las dos operaciones
+escriben sobre el entregable, y un fallo produce una foto que parece correcta con datos de otra
+ubicación.
 
 **Dos fuentes independientes para la misma dirección.** El nombre del fichero lleva la
 dirección, y el rótulo también. Se normalizan las dos y se comparan. Para coincidir estando mal
@@ -86,15 +87,14 @@ que son más que la dirección. Puede corregir los campos, mover el recuadro o g
 una foto de lado deja el rótulo en el lateral y el recuadro no se encuentra, así que al girarla
 se rehace la lectura desde el OCR y el operador marca sobre la imagen buena.
 
-**El recuadro se recorta antes de leerlo.** En las fotos aparecen metros y reglas, y sus
-números entraban en el texto que se parsea como dirección. El recorte de esos objetos va antes
-del filtrado, no después.
+En las fotos aparecen metros y reglas, y sus números entraban en el texto que se parsea como
+dirección, así que el recorte de esos objetos va antes del filtrado y no después.
 
-**Los campos se sacan en dos pasadas.** Primero expresiones regulares sobre el texto del rótulo;
-lo que quede sin resolver va a un modelo en Bedrock, sobre el texto ya leído, no sobre la
+Los campos se sacan en dos pasadas: primero expresiones regulares sobre el texto del rótulo, y
+lo que quede sin resolver va a un modelo en Bedrock, sobre el texto ya leído y no sobre la
 imagen.
 
-**El renombrado tiene cinco nomenclaturas**, una por cliente. Dos cruzan contra un Excel de
+El renombrado tiene cinco nomenclaturas, una por cliente. Dos cruzan contra un Excel de
 direcciones, una contra una tabla de referencia en CSV, y dos se resuelven con lo que ya está
 en el nombre del fichero.
 
@@ -104,14 +104,13 @@ se quedaba vacía, la función avisaba en su log y se salía, y el trabajo termi
 trabajo antes de empezar, y una operación que no devuelve resumen también, en lugar de darse
 por hecha.
 
-**Cada foto deja su fila**, en base de datos y en un CSV junto a las fotos: fecha de ejecución,
+Cada foto deja su fila, en base de datos y en un CSV junto a las fotos: fecha de ejecución,
 fichero original, calle y número del nombre, calle y número del rótulo, si coincidían, qué se
 hizo con ella y dónde acabó. Las que no se pueden resolver van a una carpeta de revisión, no al
 resultado.
 
-Un detalle de conteo: una ejecución interrumpida deja ficheros temporales de rotación en la
-misma carpeta. Se excluyen del recuento, porque no son fotos del cliente y contarlas falsea el
-total.
+Una ejecución interrumpida deja ficheros temporales de rotación en la misma carpeta. Se excluyen
+del recuento: no son fotos del cliente y contarlas infla el total.
 
 ---
 
@@ -139,7 +138,7 @@ Cinco manifestaciones de un único defecto, tratadas hasta entonces como bugs in
 
 **Síntoma.** La comprobación anterior llamaba a una consulta de proyecto que pertenece a otra línea de producto, y que además no comprueba nada cuando el identificador llega nulo. En la práctica no había autorización.
 
-**Defecto detectado al rehacerla.** La tabla de clientes guarda el nombre visible y el código en columnas distintas. La comprobación recibía el **nombre** y lo comparaba contra el **código**. Nunca casaban, así que se caía por el camino de en medio y lo único que quedaba era un `WARN` en el log. Tests en verde, funcionalidad operativa, control ninguno.
+**Defecto detectado al rehacerla.** La tabla de clientes guarda el nombre visible y el código en columnas distintas. La comprobación recibía el **nombre** y lo comparaba contra el **código**. Nunca casaban, así que se caía por el camino de en medio y lo único que quedaba era un `WARN` en el log. Los tests pasaban y la pantalla funcionaba, pero no había ningún control.
 
 **Corrección.** El código de cliente se resuelve en el servidor a partir del identificador, y nunca se acepta del navegador.
 
@@ -154,7 +153,7 @@ Cinco manifestaciones de un único defecto, tratadas hasta entonces como bugs in
 
 **Restricción.** Borrar el rótulo es la función que más le importa al negocio, y el modelo que lo hace solo existe en regiones de Estados Unidos. El anterior, alojado en Europa, está en fin de vida y cerrado a clientes nuevos, y elegirlo habría repetido un fallo que ya está en producción, que es montar un pipeline sobre un modelo que luego retiran. Y recortar el trozo antes de enviarlo no resuelve nada: el recorte **es** la zona de la dirección.
 
-**La decisión.** Se registró como lo que es, una decisión de residencia de datos y no un problema técnico: con el coste dicho (las marcas de agua llevan dirección postal, GPS, altitud y hora), tomada por quien es dueño de esa decisión, y con una condición escrita para revisarla si el producto se comercializa o se abre a más clientes. El resto de servicios se quedan en la región europea.
+**La decisión.** Se registró como decisión de residencia de datos y no como problema técnico: con el coste dicho (las marcas de agua llevan dirección postal, GPS, altitud y hora), tomada por quien es dueño de esa decisión, y con una condición escrita para revisarla si el producto se comercializa o se abre a más clientes. El resto de servicios se quedan en la región europea.
 
 **Notas de operación.** El modelo se invoca por perfil de inferencia y no aparece en el listado de modelos, solo en el de perfiles. Una única llamada con una máscara que cubre todos los fragmentos sustituye a un bucle de una invocación por caja. Unos 32 s para un PNG de 12 MB.
 
@@ -166,9 +165,9 @@ Cinco manifestaciones de un único defecto, tratadas hasta entonces como bugs in
 
 En un pueblo, 40 fotos pendientes: **18 resueltas**.
 
-Las otras 22 no tienen coordenadas ni en la imagen ni en el EXIF: de las 40, **ninguna** traía GPS. Entre las cuadrillas circulan varias apps de cámara y solo algunas estampan posición: de los cuatro formatos de rótulo que aparecieron, dos llevan coordenadas y dos solo fecha o nombre del técnico. El OCR no puede recuperar un dato que nunca se estampó.
+Las otras 22 no tienen coordenadas ni en la imagen ni en el EXIF: de las 40, **ninguna** traía GPS. Entre las cuadrillas circulan varias apps de cámara y solo algunas estampan posición: de los cuatro formatos de rótulo que aparecieron, dos llevan coordenadas y dos solo fecha o nombre del técnico. Si la app de cámara no estampó la posición, no hay nada que leer.
 
-Para esas queda el nombre de la carpeta, que **es** una dirección. Geocodificarlo da precisión de portal, no la del punto donde estaba el técnico: es una medida distinta con las mismas unidades. Está implementado y marcado con un origen distinto, para que no se mezcle jamás con una coordenada leída de la foto. Una llamada de geocoding por carpeta, no por foto.
+Para esas queda el nombre de la carpeta, que **es** una dirección. Geocodificarlo da la coordenada del portal, no la del punto donde estaba el técnico. Está implementado y guardado con un origen distinto, para que no se mezcle con una coordenada leída de la foto. Una llamada de geocoding por carpeta, no por foto.
 
 Dos fallos de formato más que cayeron en la misma pasada: la expresión regular de coordenadas con hemisferio no tragaba el formato de una de las apps por el símbolo de grado entre número y letra, y la de fechas solo aceptaba un separador.
 
