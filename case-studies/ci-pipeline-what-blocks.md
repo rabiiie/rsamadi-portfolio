@@ -58,11 +58,9 @@ El escaneo de secretos tiene la misma forma. Los hallazgos históricos se permit
 
 ## 3. Los cimientos que había que poner primero
 
-**El problema.** El esquema no estaba versionado. Unos setenta ficheros `.sql` sueltos en la raíz del repositorio, aplicados a mano, sin registro en ninguna parte del orden de aplicación, de si eran idempotentes ni del estado de cada entorno.
+El esquema no estaba versionado: unos setenta ficheros `.sql` sueltos en la raíz del repositorio, aplicados a mano, sin registro en ninguna parte del orden de aplicación, de si eran idempotentes ni del estado de cada entorno. Eso dejaba el job de arranque del contexto en informativo, porque el test necesita una base de datos con el esquema ya construido y no había forma automática de construirla, así que estaba directamente excluido de la ejecución.
 
-**A qué bloqueaba.** El job de arranque del contexto estaba en informativo porque el test necesitaba una base de datos con el esquema ya construido, y no había forma automática de construirla. Así que ese test estaba directamente excluido de la ejecución.
-
-**El arreglo, y cómo lo verifiqué.**
+Cómo se puso la línea base, y cómo la verifiqué:
 
 - Línea base generada con `pg_dump --schema-only` sobre una copia en contenedor, y después **verificada cargándola en una base de datos vacía**: 351 relaciones, 868 índices de usuario, 1.014 funciones, 424 restricciones, idénticas al origen y sin errores.
 - De 1.264 tablas, **1.002 las crea la aplicación en tiempo de ejecución**: tablas de staging por proyecto, particiones diarias de historial. Esas no son esquema y quedan fuera; incluirlas haría que la línea base creciera sola. Las tablas particionadas padre sí entran.

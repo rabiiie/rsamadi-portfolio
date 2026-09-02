@@ -24,7 +24,7 @@ Soy el único desarrollador de AppFibra, una plataforma SaaS para el despliegue 
 
 ## Si la conversación va a rendimiento
 
-*[Write-up completo: [rendimiento de la tabla](../case-studies/measured-performance-diagnosis.md)]*
+*[Write-up completo: [rendimiento medido](../case-studies/measured-performance.md)]*
 
 Las tablas de seguimiento manejan cientos de miles de registros con más de 40 columnas, y los usuarios decían que pasar el ratón y hacer scroll iba pesado.
 
@@ -38,7 +38,7 @@ El hábito que hay debajo de todo esto: medir la variabilidad antes de medir la 
 
 ## Si preguntan por escala, o "cuántos usuarios aguanta"
 
-*[Write-up completo: [capacidad y base de datos](../case-studies/capacity-and-database-performance.md)]*
+*[Write-up completo: [rendimiento medido](../case-studies/measured-performance.md#parte-2--el-servidor)]*
 
 Nadie lo sabía, así que lo medí. Scripts de k6 que reproducen la mezcla real de gestos, con umbrales que tumban la ejecución. El codo está entre 150 y 300 usuarios concurrentes; a 300 se cruzaron los seis umbrales, a 187 req/s. Degradaron todos los gestos a la vez, lo que apuntaba a un recurso compartido y no a una query mala, y un experimento controlado separó el pool de conexiones (real, pequeño) de la CPU (dominante). Eso le dijo al negocio que comprara núcleos y no que me pagara por ajustar parámetros que no eran la restricción.
 

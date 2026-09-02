@@ -6,14 +6,21 @@ Aquí tienes los write-ups de lo que he hecho, sin código propietario, sin dato
 
 ## Casos
 
+Los dos productos:
+
 - [AppFibra — SaaS GIS, agentes de IA y seguridad](case-studies/appfibra-saas-gis-ai.md)
 - [WilayaCenter Pharma — ERP/TPV para farmacia](case-studies/wilayacenter-pharma-saas.md)
+
+Cómo trabajo, con las cifras de cada cosa:
+
 - [Agentes de IA sobre MCP — tools en vez de text-to-SQL](case-studies/mcp-agents-semantic-tools.md)
 - [Documentación fotográfica — OCR, geocoding y borrado de marcas](case-studies/photodoc-silent-failures.md)
-- [Rendimiento de una tabla de datos — diagnóstico en el navegador](case-studies/measured-performance-diagnosis.md)
-- [Capacidad y base de datos — pruebas de carga y trabajo de queries](case-studies/capacity-and-database-performance.md)
+- [Rendimiento medido — el navegador y el servidor del mismo problema](case-studies/measured-performance.md)
 - [Pipeline de CI — qué comprobaciones pueden bloquear](case-studies/ci-pipeline-what-blocks.md)
 - [Trampas conocidas](trampas-conocidas.md)
+
+De un vistazo:
+
 - [Diagramas de arquitectura](diagrams/appfibra-platform.md)
 - [Resumen en 60 segundos](presentation/rabie-samadi-technical-portfolio.md)
 
